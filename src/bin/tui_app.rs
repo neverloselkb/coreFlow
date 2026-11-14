@@ -5892,6 +5892,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
       </svg>
     </div>
+    <div class="server-icon" onclick="openHelpModal()" id="rail-help" title="도움말 & 하드웨어/게이밍 이상 징후 진단 가이드 (단축키 F1)">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    </div>
     <div class="server-icon" onclick="enterMiniHudMode()" id="rail-minihud" title="원클릭 컴팩트 미니 HUD 모드 전환 (항상 위 고정 • 단축키 F10)">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -5908,7 +5915,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <img src="/favicon.ico?v=3" alt="CoreFlow" width="20" height="20" style="border-radius: 5px; display: block;" />
         <span><strong style="color: var(--brand);">CORE</strong>FLOW</span>
       </span>
-      <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">v1.0.0</span>
+      <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">v__COREFLOW_APP_VERSION__</span>
     </div>
 
     <div class="channel-list">
@@ -5969,6 +5976,14 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
         <span>스마트-경고-알림</span>
+      </div>
+      <div class="channel-item" id="chan-help" onclick="openHelpModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span>도움말-진단-가이드</span>
       </div>
 
       <div class="category-label" style="margin-top: 14px;">하드웨어 엔진</div>
@@ -6037,6 +6052,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </button>
         <button id="btn-minihud" class="btn secondary" onclick="enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
           🗗 미니 HUD
+        </button>
+        <button id="btn-help-guide" class="btn secondary" onclick="openHelpModal()" title="각 메뉴별 수치 해석 방법, 주의해야 할 이상 징후 및 해결 팁 가이드를 엽니다 (단축키 F1)">
+          ❓ 도움말
         </button>
         <button id="btn-update-check" class="btn secondary" onclick="openUpdateModal(true)" title="GitHub 저장소(neverloselkb/coreFlow)에서 최신 버전 업데이트를 확인하고 자동 설치합니다">
           🔄 <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
@@ -7072,6 +7090,158 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- 메뉴별 도움말 & 하드웨어/게이밍 이상 징후 진단 가이드 오버레이 -->
+  <div id="help-overlay" class="detail-overlay hidden">
+    <div class="detail-header">
+      <div class="detail-title-group">
+        <div class="detail-title">❓ CoreFlow 메뉴별 수치 해석 & 이상 징후 주의 가이드</div>
+        <div class="detail-sub">각 모니터링 화면에서 어떤 수치가 나올 때 주의해야 하는지, 렉·끊김(병목)의 원인과 해결 팁을 한눈에 확인하세요</div>
+      </div>
+      <div class="detail-actions">
+        <span class="badge" style="color: var(--brand);">단축키: F1 (열기) / Esc (닫기)</span>
+        <button class="btn" onclick="closeHelpModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+      </div>
+    </div>
+
+    <div class="detail-body" style="gap: 16px;">
+      <!-- 상단 빠른 단축키 & 핵심 활용 팁 요약 배너 -->
+      <div class="card" style="padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.08);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">
+            💡 CoreFlow 200% 활용 핵심 단축키 & 조작 팁
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px;">
+            <span class="badge">🖱️ 상단 카드 <strong>더블클릭</strong>: 전체화면 상세 분석 뷰</span>
+            <span class="badge">🖱️ 프로세스 <strong>우클릭</strong>: 강제 종료 / FPS 타겟 지정 / 게임 등록</span>
+            <span class="badge">⌨️ <strong>F10</strong>: 컴팩트 미니 HUD 전환</span>
+            <span class="badge">🔢 <strong>차트형 ↔ 수치 그리드</strong>: 그래프와 표 화면 즉시 전환</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2열 가이드 그리드 -->
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+
+        <!-- 1. CPU & 논리 코어 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--brand);">⚡ 1. CPU 부하 & 코어별 매트릭스 주의사항</div>
+            <span class="badge">통합 대시보드 / CPU 상세</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 주의 현상 1: 전체 CPU는 30~40%인데 특정 코어 1~2개만 95~100%를 찍을 때</strong><br>
+              게임이 특정 메인 스레드(단일 코어)에 병목이 걸린 상태입니다! 전체 평균이 낮아 보여도 인게임에서는 프레임이 더 이상 오르지 않거나 화면이 잔뜩 끊길 수 있습니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> CPU 상세 보기(더블클릭)에서 코어별 매트릭스를 확인하고, 백그라운드에서 CPU를 갉아먹는 브라우저 탭이나 런처·오버레이를 정리하세요.</span>
+            </div>
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임을 안 켜도 CPU가 15% 이상 계속 유지될 때</strong><br>
+              백그라운드 프로세스(예: <code>MsMpEng.exe</code> 윈도우 디펜더 검사, 자동 업데이트, 좀비 프로세스)가 리소스를 점유 중입니다. 프로세스 테이블에서 <strong>CPU 순으로 정렬</strong>한 뒤 불필요한 앱을 우클릭해 종료하세요.
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. GPU & VRAM 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--orange);">🎛️ 2. GPU 코어 온도 · 클럭 · VRAM 주의사항</div>
+            <span class="badge">하드웨어 GPU 상세</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 주의 현상 1: GPU 온도가 83°C~85°C 이상 올라가며 클럭(MHz)이 뚝 떨어질 때</strong><br>
+              그래픽카드 과열로 인해 부품을 보호하려고 성능을 강제로 낮추는 <strong>서멀 스로틀링(Thermal Throttling)</strong> 현상입니다. 잘 되던 게임이 갑자기 뚝뚝 끊기기 시작합니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> [스마트 경고 알림]에서 GPU 온도 경고를 80°C로 켜두고, 케이스 통풍이나 그래픽카드 팬 속도를 점검하세요.</span>
+            </div>
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 전용 VRAM 점유율이 90%~95%를 넘을 때</strong><br>
+              그래픽카드 비디오 메모리가 가득 차서 시스템 RAM으로 데이터를 넘기게 되며, 화면을 돌릴 때마다 <strong>심각한 멈칫거림(스터터링)</strong>이 발생합니다. 게임 그래픽 옵션에서 <strong>'텍스처 품질'</strong>이나 '그림자/해상도'를 한 단계 낮추면 즉시 해결됩니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 시스템 RAM & 가상 메모리(Swap) 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--purple);">💾 3. 시스템 RAM & 가상 메모리(Swap) 주의사항</div>
+            <span class="badge">통합 대시보드 / RAM 상세</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 주의 현상 1: RAM 점유율이 85~90%를 넘고 Swap(가상 메모리) 사용량이 급증할 때</strong><br>
+              물리 RAM이 부족해 느린 디스크(SSD/HDD)를 메모리처럼 끌어다 쓰는(스와핑) 상태입니다. 게임 도중 알트탭이 느려지거나 간헐적 프리징(멈춤), 심하면 게임 튕김(Out of Memory)이 발생합니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> RAM 상세 보기(Top 10)에서 메모리를 많이 먹는 웹 브라우저(`msedge.exe`, `chrome.exe`) 등을 게임 전에 정리해 주세요.</span>
+            </div>
+            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--neon-green);">💡 참고 팁: 같은 게임을 오래 켜둘수록 RAM 사용량이 계속 올라간다면?</strong><br>
+              게임 자체의 <strong>메모리 누수(Memory Leak)</strong> 현상일 가능성이 높습니다. 2~3시간마다 게임을 한 번 재시작해 주면 초기 쾌적한 프레임으로 돌아옵니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 게임 FPS & 1% Low / 프레임타임 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--neon-green);">🎮 4. 게임 FPS · 1% Low · 프레임타임 주의사항</div>
+            <span class="badge">게임 플레이 기록 / FPS 상세</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 주의 현상 1: 평균 FPS는 120 이상으로 높은데 '1% Low FPS'가 30~40으로 낮을 때</strong><br>
+              "숫자상 프레임은 높은데 왜 눈으로 보기엔 버벅거릴까?"의 대표적인 원인입니다! <strong>1% Low FPS</strong>는 가장 심하게 프레임이 떨어지는 하위 1% 순간의 수치로, 평균 FPS와의 격차가 클수록 잔렉(마이크로 스터터링)이 심하다는 뜻입니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> 무제한 프레임보다는 모니터 주사율(예: 144 FPS)로 최대 프레임을 제한하면 GPU 발열이 줄고 1% Low 방어율이 훨씬 안정됩니다.</span>
+            </div>
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임을 켰는데 감지되지 않거나 다른 앱이 잡힐 때</strong><br>
+              상단 <strong>[🔍 게임 직접 찾기/관리]</strong> 버튼을 눌러 실행 중인 게임을 <strong>[⭐ 영구 등록]</strong>해 두면 다음부터 100% 최우선으로 자동 감지됩니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. 네트워크(핑/지터) & 디스크 I/O 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--cyan);">🌐 5. 네트워크 핑(Ping) · 지터(Jitter) & 디스크 I/O 주의사항</div>
+            <span class="badge">네트워크·디스크 모니터</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 주의 현상 1: 핑(Ping) 평균은 낮은데 '지터(Jitter, 편차)'가 15ms 이상 튀는 경우</strong><br>
+              핑이 20ms ↔ 120ms로 널뛰기하면 인게임에서 캐릭터가 순간이동(러버밴딩)하거나 총알 판정이 씹힙니다. Wi-Fi 무선 간섭이나 백그라운드 다운로드가 주원인입니다.
+            </div>
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임 중 갑자기 렉이 걸릴 때 '디스크 쓰기(W)'가 수십 MB/s로 치솟아 있다면?</strong><br>
+              스팀/런처 자동 패치나 Windows 업데이트가 뒤에서 디스크 I/O를 점유해 게임 맵/에셋 로딩이 지연되는 현상입니다. <strong>[네트워크-디스크-모니터]</strong> 하단 표에서 어떤 프로세스가 디스크를 쓰는지 즉시 색출할 수 있습니다.
+            </div>
+            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--neon-green);">💡 참고 팁: 로그인 화면과 실제 게임 접속 후의 핑 차이</strong><br>
+              디비전2 등 글로벌 게임은 로비/로그인 서버(북미·유럽 등 200ms+)와 실제 매치 서버(아시아 30~60ms) IP가 다릅니다. CoreFlow는 실제 데이터가 오가는 최저 지연 게임 서버를 우선 추적합니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. 녹화 분석 리포트 & 미니 HUD 가이드 -->
+        <div class="card" style="padding: 18px; gap: 10px;">
+          <div class="card-header" style="margin-bottom: 2px;">
+            <div class="card-title" style="font-size: 15px; color: var(--text-normal);">📊 6. 녹화 분석 리포트 & 미니 HUD 활용 가이드</div>
+            <span class="badge">녹화 분석 / 스마트 알림</span>
+          </div>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(var(--brand-rgb), 0.1); border-left: 3px solid var(--brand); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--brand);">🔍 활용 팁 1: "게임 도중 잠깐 렉이 걸렸는데 원인이 뭘까?" (사후 범인 색출)</strong><br>
+              게임 중에는 그래프를 계속 볼 수 없습니다. 상단 <strong>[🔴 녹화 시작]</strong>을 켜두고 플레이한 뒤 종료하면, <strong>[📊 분석 리포트]</strong>의 타임라인 그래프 위에 마우스를 움직여 <strong>프레임이 떨어진 바로 그 시간(초)에 CPU/GPU/온도 중 무엇이 튀었는지, 당시 1위 프로세스가 무엇이었는지</strong> 정확히 찾아낼 수 있습니다!
+            </div>
+            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
+              <strong style="color: var(--neon-green);">🗗 활용 팁 2: 화면을 가리지 않는 '미니 HUD (F10)'</strong><br>
+              듀얼 모니터 한쪽 구석이나 창모드 게임 위에 <strong><code>F10</code></strong>을 눌러 미니 HUD를 띄워두세요. <code>3×2 박스형</code>과 <code>6×1 가로 슬림 바</code> 중 원하는 모양으로 고정해 두고 6대 핵심 지표를 실시간 감시할 수 있습니다.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- 프로세스 우클릭 커스텀 컨텍스트 메뉴 -->
   <div id="ctx-menu" class="ctx-menu hidden">
     <div id="ctx-header" class="ctx-header">process.exe (PID: 0)</div>
@@ -7095,6 +7265,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   });
 
   window.addEventListener('keydown', e => {
+    if (e.key === 'F1') {
+      e.preventDefault();
+      openHelpModal();
+      return;
+    }
     if (e.key === 'F10') {
       e.preventDefault();
       if (isMiniHudMode) exitMiniHudMode();
@@ -7112,6 +7287,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       closeAlertSettings();
       closeGameScanModal();
       closeUpdateModal();
+      closeHelpModal();
     }
   });
 
@@ -7333,6 +7509,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeRecordAnalysis();
     closeAlertSettings();
     closeUpdateModal();
+    closeHelpModal();
     const overlay = document.getElementById('gamescan-overlay');
     if (overlay) overlay.classList.remove('hidden');
     refreshGameScanData();
@@ -7785,7 +7962,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeDetailView();
     closeRecordAnalysis();
     closeAlertSettings();
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts'].forEach(t => {
+    closeHelpModal();
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === tab);
@@ -9343,11 +9521,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   function openAlertSettings() {
     closeDetailView();
     closeRecordAnalysis();
+    closeHelpModal();
     syncAlertInputsFromConfig();
     renderAlertSettingsUI();
     const overlay = document.getElementById('alert-overlay');
     if (overlay) overlay.classList.remove('hidden');
-    ['overview', 'system', 'gamelog', 'productivity', 'analysis', 'alerts'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === 'alerts');
@@ -9359,7 +9538,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const overlay = document.getElementById('alert-overlay');
     if (overlay && !overlay.classList.contains('hidden')) {
       overlay.classList.add('hidden');
-      ['overview', 'system', 'gamelog', 'productivity', 'analysis', 'alerts'].forEach(t => {
+      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
         const ch = document.getElementById('chan-' + t);
         const rl = document.getElementById('rail-' + t);
         if (ch) ch.classList.toggle('active', t === activeMainTab);
@@ -9830,9 +10009,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   function openRecordAnalysis() {
     closeDetailView();
+    closeHelpModal();
     const overlay = document.getElementById('record-overlay');
     overlay.classList.remove('hidden');
-    ['overview', 'system', 'productivity', 'analysis'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === 'analysis');
@@ -9844,7 +10024,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   function closeRecordAnalysis() {
     const overlay = document.getElementById('record-overlay');
     if (overlay) overlay.classList.add('hidden');
-    ['overview', 'system', 'productivity', 'analysis'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === activeMainTab);
@@ -10264,6 +10444,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   function openDetailView(type) {
     closeUpdateModal();
+    closeHelpModal();
     activeDetailType = type;
     const overlay = document.getElementById('detail-overlay');
     overlay.classList.remove('hidden');
@@ -10695,6 +10876,36 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
+  // ==================== 도움말 & 이상 징후 가이드 모달 ====================
+  function openHelpModal() {
+    closeDetailView();
+    closeRecordAnalysis();
+    closeAlertSettings();
+    closeGameScanModal();
+    closeUpdateModal();
+    const overlay = document.getElementById('help-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+      const ch = document.getElementById('chan-' + t);
+      const rl = document.getElementById('rail-' + t);
+      if (ch) ch.classList.toggle('active', t === 'help');
+      if (rl) rl.classList.toggle('active', t === 'help');
+    });
+  }
+
+  function closeHelpModal() {
+    const overlay = document.getElementById('help-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+      overlay.classList.add('hidden');
+      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+        const ch = document.getElementById('chan-' + t);
+        const rl = document.getElementById('rail-' + t);
+        if (ch) ch.classList.toggle('active', t === activeMainTab);
+        if (rl) rl.classList.toggle('active', t === activeMainTab);
+      });
+    }
+  }
+
   // ==================== GitHub Releases 기반 자동 업데이트 ====================
   let latestUpdateInfo = null;
 
@@ -10703,6 +10914,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeRecordAnalysis();
     closeAlertSettings();
     closeGameScanModal();
+    closeHelpModal();
     const overlay = document.getElementById('update-overlay');
     if (overlay) overlay.classList.remove('hidden');
     if (forceCheck || !latestUpdateInfo) {
