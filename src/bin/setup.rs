@@ -175,6 +175,7 @@ extern "system" {
 #[link(name = "User32")]
 extern "system" {
     fn FindWindowW(lp_class_name: *const u16, lp_window_name: *const u16) -> isize;
+    fn PostMessageW(h_wnd: isize, msg: u32, w_param: usize, l_param: isize) -> i32;
     fn GetForegroundWindow() -> isize;
     fn SetForegroundWindow(h_wnd: isize) -> i32;
     fn LoadImageW(
@@ -467,8 +468,23 @@ fn start_menu_shortcut_path() -> PathBuf {
         .join("CoreFlow.lnk")
 }
 
-/// 실행 중인 기존 CoreFlow.exe 프로세스를 안전하게 종료
+/// 실행 중인 기존 CoreFlow UI 창(WebView) 및 백엔드 프로세스를 모두 안전하게 종료
 fn stop_running_coreflow() -> usize {
+    // 1. 열려 있는 기존 CoreFlow UI 창(Edge/Chrome 앱 창) 닫기
+    const WM_CLOSE: u32 = 0x0010;
+    let app_title_w = to_wide_null("CoreFlow — 시스템 모니터링 & 집중 스튜디오");
+    for _ in 0..8 {
+        let hwnd = unsafe { FindWindowW(std::ptr::null(), app_title_w.as_ptr()) };
+        if hwnd == 0 {
+            break;
+        }
+        unsafe {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+        thread::sleep(Duration::from_millis(120));
+    }
+
+    // 2. 실행 중인 모든 CoreFlow.exe (감시자 및 워커) 프로세스 종료
     let mut sys = System::new_all();
     sys.refresh_all();
     let my_pid = std::process::id();
@@ -484,9 +500,14 @@ fn stop_running_coreflow() -> usize {
             }
         }
     }
-    if killed > 0 {
-        thread::sleep(Duration::from_millis(450));
-    }
+
+    // 혹시 남은 자식 프로세스 트리까지 확실히 정리
+    let _ = Command::new("taskkill")
+        .args(["/F", "/T", "/IM", "CoreFlow.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+
+    thread::sleep(Duration::from_millis(500));
     killed
 }
 

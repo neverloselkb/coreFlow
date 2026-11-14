@@ -648,9 +648,10 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         return r#"{"ok":false,"error":"업데이트 설치 마법사 실행에 실패했습니다."}"#.to_string();
     }
 
-    // 400ms 후 현재 프로세스 종료하여 업데이트 설치기가 파일을 교체할 수 있도록 함
+    // 350ms 후 현재 UI 창을 닫고 프로세스를 종료하여 업데이트 설치기가 파일을 교체할 수 있도록 함
     thread::spawn(|| {
-        thread::sleep(Duration::from_millis(450));
+        thread::sleep(Duration::from_millis(350));
+        close_stale_app_window();
         std::process::exit(0);
     });
 
@@ -3894,10 +3895,35 @@ fn append_watchdog_log(msg: &str) {
     }
 }
 
+/// 새 CoreFlow 실행 시 기존에 떠 있던 이전 버전/중복 CoreFlow 창과 프로세스를 정리
+fn terminate_existing_coreflow_instances() {
+    close_stale_app_window();
+    let my_pid = std::process::id();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut killed = false;
+    for (pid, proc_info) in sys.processes() {
+        let p = pid.as_u32();
+        if p == my_pid {
+            continue;
+        }
+        let name_lower = proc_info.name().to_string_lossy().to_lowercase();
+        if name_lower == "coreflow.exe" || name_lower == "coreflow" {
+            if proc_info.kill() {
+                killed = true;
+            }
+        }
+    }
+    if killed {
+        thread::sleep(Duration::from_millis(350));
+    }
+}
+
 /// 감시자(Supervisor) 프로세스: 실제 모니터링 워커를 자식으로 실행하고,
 /// 워커가 비정상 종료(크래시/교착 상태 감지)되면 자동으로 다시 실행합니다.
 /// 사용자가 정상적으로 종료(종료 코드 0)한 경우에는 함께 종료됩니다.
 fn run_supervisor() {
+    terminate_existing_coreflow_instances();
     let Ok(exe) = std::env::current_exe() else {
         run_worker(false);
         return;
@@ -7094,8 +7120,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="help-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">❓ CoreFlow 메뉴별 수치 해석 & 이상 징후 주의 가이드</div>
-        <div class="detail-sub">각 모니터링 화면에서 어떤 수치가 나올 때 주의해야 하는지, 렉·끊김(병목)의 원인과 해결 팁을 한눈에 확인하세요</div>
+        <div class="detail-title">❓ 알기 쉬운 PC 상태 & 게임 렉 진단 가이드</div>
+        <div class="detail-sub">컴퓨터를 잘 몰라도 괜찮아요! 각 숫자가 무엇을 뜻하는지, 언제 왜 렉이 걸리는지 쉽게 알려드립니다</div>
       </div>
       <div class="detail-actions">
         <span class="badge" style="color: var(--brand);">단축키: F1 (열기) / Esc (닫기)</span>
@@ -7105,135 +7131,133 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
     <div class="detail-body" style="gap: 16px;">
       <!-- 상단 빠른 단축키 & 핵심 활용 팁 요약 배너 -->
-      <div class="card" style="padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.08);">
+      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.08);">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-          <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">
+          <div style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">
             💡 CoreFlow 200% 활용 핵심 단축키 & 조작 팁
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px;">
-            <span class="badge">🖱️ 상단 카드 <strong>더블클릭</strong>: 전체화면 상세 분석 뷰</span>
-            <span class="badge">🖱️ 프로세스 <strong>우클릭</strong>: 강제 종료 / FPS 타겟 지정 / 게임 등록</span>
-            <span class="badge">⌨️ <strong>F10</strong>: 컴팩트 미니 HUD 전환</span>
-            <span class="badge">🔢 <strong>차트형 ↔ 수치 그리드</strong>: 그래프와 표 화면 즉시 전환</span>
+            <span class="badge">🖱️ 상단 카드 <strong>더블클릭</strong>: 크게 자세히 보기</span>
+            <span class="badge">🖱️ 프로그램 이름 <strong>우클릭</strong>: 강제 끄기 / 게임으로 등록</span>
+            <span class="badge">⌨️ <strong>F10</strong>: 작은 미니 창(HUD) 모드</span>
+            <span class="badge">🔢 <strong>차트형 ↔ 수치 그리드</strong>: 그래프와 숫자 표 전환</span>
           </div>
         </div>
       </div>
 
       <!-- 2열 가이드 그리드 -->
-      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; flex-shrink: 0; padding-bottom: 12px;">
 
-        <!-- 1. CPU & 논리 코어 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <!-- 1. CPU 가이드 (컴퓨터의 두뇌) -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--brand);">⚡ 1. CPU 부하 & 코어별 매트릭스 주의사항</div>
-            <span class="badge">통합 대시보드 / CPU 상세</span>
+            <div class="card-title" style="font-size: 15px; color: var(--brand); white-space: normal;">⚡ 1. CPU 부하 — "컴퓨터의 두뇌와 일꾼들"</div>
+            <span class="badge" style="flex-shrink: 0;">통합 대시보드 / CPU 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 주의 현상 1: 전체 CPU는 30~40%인데 특정 코어 1~2개만 95~100%를 찍을 때</strong><br>
-              게임이 특정 메인 스레드(단일 코어)에 병목이 걸린 상태입니다! 전체 평균이 낮아 보여도 인게임에서는 프레임이 더 이상 오르지 않거나 화면이 잔뜩 끊길 수 있습니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> CPU 상세 보기(더블클릭)에서 코어별 매트릭스를 확인하고, 백그라운드에서 CPU를 갉아먹는 브라우저 탭이나 런처·오버레이를 정리하세요.</span>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 이럴 때 주의: 전체 CPU는 30%밖에 안 되는데, 작은 칸(Core) 1~2개만 95~100%로 꽉 찰 때</strong><br>
+              CPU 안에는 여러 명의 일꾼(코어)이 있습니다. 전체 평균은 한가해 보여도, <strong>게임을 담당하는 대표 일꾼 1~2명이 과로로 지쳐 쓰러지기 직전</strong>인 상태입니다! 이러면 그래픽카드가 아무리 좋아도 게임 화면이 뚝뚝 끊깁니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임할 때는 뒤에 켜둔 인터넷 창(유튜브 등)이나 안 쓰는 메신저·런처를 꺼서 일꾼의 부담을 덜어주세요.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임을 안 켜도 CPU가 15% 이상 계속 유지될 때</strong><br>
-              백그라운드 프로세스(예: <code>MsMpEng.exe</code> 윈도우 디펜더 검사, 자동 업데이트, 좀비 프로세스)가 리소스를 점유 중입니다. 프로세스 테이블에서 <strong>CPU 순으로 정렬</strong>한 뒤 불필요한 앱을 우클릭해 종료하세요.
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 아무것도 안 하고 바탕화면만 띄워놨는데 CPU가 계속 15% 이상일 때</strong><br>
+              보이지 않는 곳에서 백신 검사(<code>MsMpEng.exe</code>)나 자동 업데이트, 혹은 제대로 안 꺼진 프로그램이 컴퓨터 힘을 몰래 쓰고 있는 것입니다. 아래 <strong>[실행 중인 프로세스]</strong> 표에서 <strong>CPU</strong> 글자를 눌러 많이 쓰는 순서대로 정렬한 뒤, 필요 없는 프로그램을 <strong>마우스 우클릭 → 강제 종료</strong>해 보세요.
             </div>
           </div>
         </div>
 
-        <!-- 2. GPU & VRAM 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <!-- 2. GPU & VRAM 가이드 (게임 그래픽 담당) -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--orange);">🎛️ 2. GPU 코어 온도 · 클럭 · VRAM 주의사항</div>
-            <span class="badge">하드웨어 GPU 상세</span>
+            <div class="card-title" style="font-size: 15px; color: var(--orange); white-space: normal;">🎛️ 2. GPU & VRAM — "게임 화면을 그려주는 그래픽카드"</div>
+            <span class="badge" style="flex-shrink: 0;">하드웨어 GPU 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 주의 현상 1: GPU 온도가 83°C~85°C 이상 올라가며 클럭(MHz)이 뚝 떨어질 때</strong><br>
-              그래픽카드 과열로 인해 부품을 보호하려고 성능을 강제로 낮추는 <strong>서멀 스로틀링(Thermal Throttling)</strong> 현상입니다. 잘 되던 게임이 갑자기 뚝뚝 끊기기 시작합니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> [스마트 경고 알림]에서 GPU 온도 경고를 80°C로 켜두고, 케이스 통풍이나 그래픽카드 팬 속도를 점검하세요.</span>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 이럴 때 주의: GPU 온도가 83°C~85°C를 넘으면서 갑자기 게임이 심하게 버벅거릴 때</strong><br>
+              그래픽카드가 너무 뜨거워져서 <strong>"이러다 고장 나겠다!" 하고 스스로 속도를 확 줄여버리는 현상</strong>(과열 보호)입니다. 처음엔 잘 되던 게임이 20~30분 뒤부터 갑자기 끊긴다면 99% 이 온도 문제입니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> [🔔 스마트 알림]에서 GPU 온도 경고를 80°C로 켜두시고, 본체 주변이 막혀 있지 않은지·먼지가 쌓이지 않았는지 확인해 주세요.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 전용 VRAM 점유율이 90%~95%를 넘을 때</strong><br>
-              그래픽카드 비디오 메모리가 가득 차서 시스템 RAM으로 데이터를 넘기게 되며, 화면을 돌릴 때마다 <strong>심각한 멈칫거림(스터터링)</strong>이 발생합니다. 게임 그래픽 옵션에서 <strong>'텍스처 품질'</strong>이나 '그림자/해상도'를 한 단계 낮추면 즉시 해결됩니다.
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: VRAM(비디오 메모리)이 90~95% 이상 꽉 찼을 때</strong><br>
+              <strong>VRAM</strong>은 게임 속 배경·캐릭터 그림을 담아두는 '그래픽카드 전용 창고'입니다. 이 창고가 꽉 차면 마우스로 시야를 돌릴 때마다 화면이 0.5초씩 덜컥거리며 멈춥니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임 내 그래픽 설정에서 <strong>'텍스처(Texture) 품질'</strong>이나 '그림자' 옵션을 한 단계만 낮추면 거짓말처럼 부드러워집니다!</span>
             </div>
           </div>
         </div>
 
-        <!-- 3. 시스템 RAM & 가상 메모리(Swap) 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <!-- 3. 시스템 RAM & 가상 메모리(Swap) 가이드 (컴퓨터의 작업 책상) -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--purple);">💾 3. 시스템 RAM & 가상 메모리(Swap) 주의사항</div>
-            <span class="badge">통합 대시보드 / RAM 상세</span>
+            <div class="card-title" style="font-size: 15px; color: var(--purple); white-space: normal;">💾 3. 시스템 RAM & Swap — "프로그램을 펼쳐놓는 작업 책상"</div>
+            <span class="badge" style="flex-shrink: 0;">통합 대시보드 / RAM 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 주의 현상 1: RAM 점유율이 85~90%를 넘고 Swap(가상 메모리) 사용량이 급증할 때</strong><br>
-              물리 RAM이 부족해 느린 디스크(SSD/HDD)를 메모리처럼 끌어다 쓰는(스와핑) 상태입니다. 게임 도중 알트탭이 느려지거나 간헐적 프리징(멈춤), 심하면 게임 튕김(Out of Memory)이 발생합니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> RAM 상세 보기(Top 10)에서 메모리를 많이 먹는 웹 브라우저(`msedge.exe`, `chrome.exe`) 등을 게임 전에 정리해 주세요.</span>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 이럴 때 주의: RAM이 85~90%를 넘고, Swap(가상 메모리) 숫자가 크게 올라갈 때</strong><br>
+              <strong>RAM</strong>은 책상 넓이와 같습니다. 책상이 꽉 차면 컴퓨터는 어쩔 수 없이 느린 서랍장(저장장치 SSD/하드디스크, 즉 <strong>Swap</strong>)에 물건을 넣었다 뺐다 하기 시작합니다. 이때 화면 전환(알트+탭)이 엄청나게 느려지거나 게임이 갑자기 튕기게 됩니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 인터넷 브라우저(크롬, 엣지 등)는 창을 여러 개 켜두면 RAM을 엄청나게 차지합니다. 고사양 게임을 할 땐 인터넷 창을 꼭 닫아주세요.</span>
             </div>
-            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--neon-green);">💡 참고 팁: 같은 게임을 오래 켜둘수록 RAM 사용량이 계속 올라간다면?</strong><br>
-              게임 자체의 <strong>메모리 누수(Memory Leak)</strong> 현상일 가능성이 높습니다. 2~3시간마다 게임을 한 번 재시작해 주면 초기 쾌적한 프레임으로 돌아옵니다.
+            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--neon-green);">💡 알아두면 좋은 팁: 같은 게임을 3~4시간 연속으로 했더니 점점 느려진다면?</strong><br>
+              오래 켜둔 게임이 다 쓴 책상 자리를 안 치워서 RAM이 점점 차오르는 현상입니다. 이럴 땐 <strong>게임을 한 번 껐다가 다시 켜기만 해도</strong> 처음처럼 다시 빨라집니다.
             </div>
           </div>
         </div>
 
-        <!-- 4. 게임 FPS & 1% Low / 프레임타임 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <!-- 4. 게임 FPS & 1% Low 가이드 (화면의 부드러움) -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--neon-green);">🎮 4. 게임 FPS · 1% Low · 프레임타임 주의사항</div>
-            <span class="badge">게임 플레이 기록 / FPS 상세</span>
+            <div class="card-title" style="font-size: 15px; color: var(--neon-green); white-space: normal;">🎮 4. 게임 FPS & 1% Low — "화면이 얼마나 매끄럽게 움직일까?"</div>
+            <span class="badge" style="flex-shrink: 0;">게임 플레이 기록 / FPS 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 주의 현상 1: 평균 FPS는 120 이상으로 높은데 '1% Low FPS'가 30~40으로 낮을 때</strong><br>
-              "숫자상 프레임은 높은데 왜 눈으로 보기엔 버벅거릴까?"의 대표적인 원인입니다! <strong>1% Low FPS</strong>는 가장 심하게 프레임이 떨어지는 하위 1% 순간의 수치로, 평균 FPS와의 격차가 클수록 잔렉(마이크로 스터터링)이 심하다는 뜻입니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 팁:</strong> 무제한 프레임보다는 모니터 주사율(예: 144 FPS)로 최대 프레임을 제한하면 GPU 발열이 줄고 1% Low 방어율이 훨씬 안정됩니다.</span>
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 이럴 때 주의: 평균 FPS는 120으로 높은데, '1% Low FPS'가 30~40으로 낮게 나올 때</strong><br>
+              <strong>FPS(프레임)</strong>는 1초에 화면을 몇 장 그려주는지(60 이상이면 부드러움)를 뜻합니다. 그런데 평균 점수가 120점이어도 <strong>가장 버벅거렸던 최악의 순간(1% Low)</strong>이 30점이라면, 우리 눈은 그 순간적인 멈칫거림 때문에 <em>"왜 이렇게 잔렉이 심하지?"</em>라고 느끼게 됩니다!<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임 설정에서 '최대 프레임 제한'을 무제한 대신 모니터 성능(예: 60 또는 144)에 맞춰 고정해 두면, 그래픽카드가 무리하지 않아 이 잔렉이 확 줄어듭니다.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임을 켰는데 감지되지 않거나 다른 앱이 잡힐 때</strong><br>
-              상단 <strong>[🔍 게임 직접 찾기/관리]</strong> 버튼을 눌러 실행 중인 게임을 <strong>[⭐ 영구 등록]</strong>해 두면 다음부터 100% 최우선으로 자동 감지됩니다.
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 게임을 분명 켰는데 '실행 중인 게임 없음'으로 나올 때</strong><br>
+              새로운 게임이나 인디 게임은 자동 목록에 없을 수 있습니다. 아래쪽 <strong>[🔍 게임 직접 찾기/관리]</strong> 버튼을 눌러 켜져 있는 게임을 한 번만 <strong>[⭐ 영구 등록]</strong>해 주시면, 다음부터는 켜자마자 자동으로 인식합니다!
             </div>
           </div>
         </div>
 
-        <!-- 5. 네트워크(핑/지터) & 디스크 I/O 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <!-- 5. 네트워크(핑/지터) & 디스크 I/O 가이드 (인터넷과 저장장치) -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--cyan);">🌐 5. 네트워크 핑(Ping) · 지터(Jitter) & 디스크 I/O 주의사항</div>
-            <span class="badge">네트워크·디스크 모니터</span>
+            <div class="card-title" style="font-size: 15px; color: var(--cyan); white-space: normal;">🌐 5. 인터넷 핑(Ping) · 지터 & 디스크 — "통신 렉과 로딩 렉 찾기"</div>
+            <span class="badge" style="flex-shrink: 0;">네트워크·디스크 모니터</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 주의 현상 1: 핑(Ping) 평균은 낮은데 '지터(Jitter, 편차)'가 15ms 이상 튀는 경우</strong><br>
-              핑이 20ms ↔ 120ms로 널뛰기하면 인게임에서 캐릭터가 순간이동(러버밴딩)하거나 총알 판정이 씹힙니다. Wi-Fi 무선 간섭이나 백그라운드 다운로드가 주원인입니다.
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--red);">🚨 이럴 때 주의: 핑(Ping) 숫자가 높거나, '지터(흔들림)'가 15ms 이상일 때</strong><br>
+              <strong>핑(Ping)</strong>은 내 컴퓨터와 게임 서버가 신호를 주고받는 반응 속도입니다(낮을수록 좋음: 1~50ms 쾌적 / 150ms 이상 느림). 특히 <strong>지터(Jitter)</strong>가 높으면 신호 속도가 빨랐다 느렸다 널뛰기하는 상태라, 게임 캐릭터가 제자리걸음을 하거나 순간이동을 하게 됩니다.<br>
+              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 와이파이(무선) 대신 랜선(유선)을 꽂거나, 뒤에서 토렌트·스팀 다운로드가 돌아가고 있는지 확인하세요.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 주의 현상 2: 게임 중 갑자기 렉이 걸릴 때 '디스크 쓰기(W)'가 수십 MB/s로 치솟아 있다면?</strong><br>
-              스팀/런처 자동 패치나 Windows 업데이트가 뒤에서 디스크 I/O를 점유해 게임 맵/에셋 로딩이 지연되는 현상입니다. <strong>[네트워크-디스크-모니터]</strong> 하단 표에서 어떤 프로세스가 디스크를 쓰는지 즉시 색출할 수 있습니다.
-            </div>
-            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--neon-green);">💡 참고 팁: 로그인 화면과 실제 게임 접속 후의 핑 차이</strong><br>
-              디비전2 등 글로벌 게임은 로비/로그인 서버(북미·유럽 등 200ms+)와 실제 매치 서버(아시아 30~60ms) IP가 다릅니다. CoreFlow는 실제 데이터가 오가는 최저 지연 게임 서버를 우선 추적합니다.
+            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 게임 중 갑자기 멈출 때 '디스크 쓰기(W)'가 수십 MB/s로 치솟아 있다면?</strong><br>
+              게임이 저장장치(SSD/하드)에서 다음 맵을 불러와야 하는데, 뒤에서 <strong>스팀 자동 업데이트나 윈도우 업데이트가 저장장치를 혼자 독차지하고 있는 상황</strong>입니다. <strong>[네트워크-디스크-모니터]</strong> 메뉴 하단 표에서 누가 디스크를 쓰고 있는지 바로 찾을 수 있습니다.
             </div>
           </div>
         </div>
 
         <!-- 6. 녹화 분석 리포트 & 미니 HUD 가이드 -->
-        <div class="card" style="padding: 18px; gap: 10px;">
+        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
           <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--text-normal);">📊 6. 녹화 분석 리포트 & 미니 HUD 활용 가이드</div>
-            <span class="badge">녹화 분석 / 스마트 알림</span>
+            <div class="card-title" style="font-size: 15px; color: var(--text-normal); white-space: normal;">📊 6. 녹화 분석 & 미니 HUD — "게임 중 렉 걸린 범인 나중에 찾기"</div>
+            <span class="badge" style="flex-shrink: 0;">녹화 분석 / 미니 HUD</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(var(--brand-rgb), 0.1); border-left: 3px solid var(--brand); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--brand);">🔍 활용 팁 1: "게임 도중 잠깐 렉이 걸렸는데 원인이 뭘까?" (사후 범인 색출)</strong><br>
-              게임 중에는 그래프를 계속 볼 수 없습니다. 상단 <strong>[🔴 녹화 시작]</strong>을 켜두고 플레이한 뒤 종료하면, <strong>[📊 분석 리포트]</strong>의 타임라인 그래프 위에 마우스를 움직여 <strong>프레임이 떨어진 바로 그 시간(초)에 CPU/GPU/온도 중 무엇이 튀었는지, 당시 1위 프로세스가 무엇이었는지</strong> 정확히 찾아낼 수 있습니다!
+          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: rgba(var(--brand-rgb), 0.1); border-left: 3px solid var(--brand); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--brand);">🔍 꿀팁 1: "아까 한타할 때 잠깐 끊겼는데 도대체 왜 그랬지?" (블랙박스 녹화 기능)</strong><br>
+              게임에 집중할 때는 이 화면을 쳐다볼 수 없죠! 게임 시작 전에 상단 <strong>[🔴 녹화 시작]</strong> 버튼만 눌러두세요. 게임이 끝난 뒤 <strong>[📊 분석 리포트]</strong>를 열면, 자동차 블랙박스처럼 <strong>아까 렉이 걸렸던 바로 그 시간에 온도가 튀었는지, 어떤 프로그램이 범인이었는지</strong> 마우스만 올려서 한눈에 찾아낼 수 있습니다.
             </div>
-            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 8px 12px; border-radius: 6px;">
-              <strong style="color: var(--neon-green);">🗗 활용 팁 2: 화면을 가리지 않는 '미니 HUD (F10)'</strong><br>
-              듀얼 모니터 한쪽 구석이나 창모드 게임 위에 <strong><code>F10</code></strong>을 눌러 미니 HUD를 띄워두세요. <code>3×2 박스형</code>과 <code>6×1 가로 슬림 바</code> 중 원하는 모양으로 고정해 두고 6대 핵심 지표를 실시간 감시할 수 있습니다.
+            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 10px 12px; border-radius: 6px;">
+              <strong style="color: var(--neon-green);">🗗 꿀팁 2: 화면 구석에 작게 띄워두는 '미니 HUD (단축키 F10)'</strong><br>
+              창이 너무 커서 부담스러울 땐 키보드 <strong><code>F10</code></strong> 키를 눌러보세요! 다른 창에 가려지지 않는 <strong>작고 예쁜 미니 상태창</strong>으로 변신하며, 한번 더 <code>F10</code>을 누르면 원래 크기로 돌아옵니다.
             </div>
           </div>
         </div>
@@ -11051,7 +11075,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       const res = await apiFetch(`/api/perform_update?url=${encodeURIComponent(latestUpdateInfo.download_url)}`, { method: 'POST' });
       const data = await res.json();
       if (data.ok) {
-        showToast('🚀 다운로드 완료! 잠시 후 최신 버전으로 자동 재시작됩니다...');
+        showToast('🚀 다운로드 완료! 기존 창을 닫고 최신 버전으로 자동 재시작합니다...');
+        setTimeout(() => {
+          window.close();
+        }, 300);
       } else {
         showToast(`⚠️ 업데이트 실패: ${data.error || '알 수 없는 오류'}`);
         if (headline) headline.textContent = `❌ ${data.error || '업데이트에 실패했습니다.'}`;
