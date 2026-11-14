@@ -309,7 +309,7 @@ fn register_uninstaller(install_dir: &Path, exe_path: &Path, uninstaller_path: &
         let size_kb = ((EMBEDDED_COREFLOW_EXE.len() + EMBEDDED_ICON_ICO.len()) / 1024) as u32;
 
         reg_set_sz(hkey, "DisplayName", "CoreFlow — 시스템 모니터링 & 게이밍 스튜디오");
-        reg_set_sz(hkey, "DisplayVersion", "1.0.0");
+        reg_set_sz(hkey, "DisplayVersion", env!("CARGO_PKG_VERSION"));
         reg_set_sz(hkey, "Publisher", "CoreFlow Studio");
         reg_set_sz(hkey, "DisplayIcon", &icon_str);
         reg_set_sz(hkey, "InstallLocation", &loc_str);
@@ -993,7 +993,8 @@ fn handle_client(
                 "__INITIAL_UNINSTALL_MODE__",
                 if initial_uninstall_mode { "true" } else { "false" },
             )
-            .replace("__PACKAGE_SIZE_MB__", &pkg_mb);
+            .replace("__PACKAGE_SIZE_MB__", &pkg_mb)
+            .replace("v1.0.0 Release", &format!("v{} Release", env!("CARGO_PKG_VERSION")));
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             html.len(),
@@ -1006,7 +1007,9 @@ fn handle_client(
 fn main() {
     let args: Vec<String> = env::args().collect();
     let initial_uninstall_mode = args.iter().any(|a| a == "--uninstall" || a == "/uninstall");
+    let silent_update_mode = args.iter().any(|a| a == "--silent-update");
     let already_elevated = args.iter().any(|a| a == "--elevated");
+    let custom_dir_arg = args.windows(2).find(|w| w[0] == "--dir").map(|w| w[1].clone());
 
     // C:\Program Files\CoreFlow 설치를 위해 관리자 권한이 아닌 경우 UAC 권한 상승 요청
     unsafe {
@@ -1017,6 +1020,12 @@ fn main() {
                 let mut param_str = String::from("--elevated");
                 if initial_uninstall_mode {
                     param_str.push_str(" --uninstall");
+                }
+                if silent_update_mode {
+                    param_str.push_str(" --silent-update");
+                }
+                if let Some(ref d) = custom_dir_arg {
+                    param_str.push_str(&format!(" --dir \"{}\"", d));
                 }
                 let param_w = to_wide_null(&param_str);
                 let cur_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1034,6 +1043,23 @@ fn main() {
                 }
             }
         }
+    }
+
+    // 자동 업데이트 모드 (--silent-update): GUI 창 없이 즉시 기존 경로(또는 --dir 경로)에 덮어쓰기 업데이트 후 재실행
+    if silent_update_mode {
+        thread::sleep(Duration::from_millis(600));
+        let target_dir = custom_dir_arg
+            .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
+        let _ = perform_install(
+            &target_dir,
+            true,  // 바탕화면 바로가기 갱신
+            true,  // 시작 메뉴 바로가기 갱신
+            true,  // 언인스톨러 버전 갱신
+            false, // 자동 실행 설정 유지
+            true,  // 기존 사용자 데이터 유지
+            true,  // 설치 후 즉시 CoreFlow 실행
+        );
+        std::process::exit(0);
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind setup port");

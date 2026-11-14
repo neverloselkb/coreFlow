@@ -467,6 +467,196 @@ fn resolve_and_get_proc_icon(exe_name: &str) -> Option<Vec<u8>> {
     }
 }
 
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const GITHUB_REPO: &str = "neverloselkb/coreFlow";
+
+fn parse_semver(ver: &str) -> (u32, u32, u32) {
+    let cleaned = ver.trim().trim_start_matches(|c: char| !c.is_ascii_digit());
+    let mut parts = cleaned.split(|c: char| !c.is_ascii_digit());
+    let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    (major, minor, patch)
+}
+
+fn is_newer_version(current: &str, latest: &str) -> bool {
+    parse_semver(latest) > parse_semver(current)
+}
+
+fn extract_json_str_field(json: &str, field: &str) -> Option<String> {
+    let pat = format!("\"{}\"", field);
+    let idx = json.find(&pat)?;
+    let rest = &json[idx + pat.len()..];
+    let colon = rest.find(':')?;
+    let after_colon = rest[colon + 1..].trim_start();
+    if !after_colon.starts_with('"') {
+        return None;
+    }
+    let mut out = String::new();
+    let mut chars = after_colon[1..].chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(esc) = chars.next() {
+                match esc {
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    '"' => out.push('"'),
+                    '\\' => out.push('\\'),
+                    '/' => out.push('/'),
+                    'u' => {
+                        let hex: String = chars.by_ref().take(4).collect();
+                        if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                            if let Some(ch) = char::from_u32(code) {
+                                out.push(ch);
+                            }
+                        }
+                    }
+                    other => out.push(other),
+                }
+            }
+        } else if c == '"' {
+            return Some(out);
+        } else {
+            out.push(c);
+        }
+    }
+    None
+}
+
+/// GitHub Releases API (`neverloselkb/coreFlow`)를 조회하여 최신 버전 및 다운로드 URL 확인
+fn check_github_update() -> String {
+    let api_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    let out = Command::new("curl.exe")
+        .args([
+            "-sL",
+            "--max-time",
+            "8",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            &api_url,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    let Ok(output) = out else {
+        return format!(
+            r#"{{"ok":false,"current_version":"{}","error":"네트워크 요청 실행에 실패했습니다."}}"#,
+            APP_VERSION
+        );
+    };
+
+    let body = String::from_utf8_lossy(&output.stdout);
+    let Some(tag_raw) = extract_json_str_field(&body, "tag_name") else {
+        let release_page = format!("https://github.com/{GITHUB_REPO}/releases");
+        return format!(
+            r#"{{"ok":true,"has_update":false,"current_version":"{}","latest_version":"{}","download_url":"","html_url":"{}","notes":"아직 GitHub에 배포된 공식 Release 태그가 없습니다. 현재 최신 버전을 사용 중입니다."}}"#,
+            APP_VERSION, APP_VERSION, release_page
+        );
+    };
+
+    let latest_clean = tag_raw.trim().trim_start_matches('v').trim_start_matches('V');
+    let has_update = is_newer_version(APP_VERSION, latest_clean);
+    let notes = extract_json_str_field(&body, "body").unwrap_or_default();
+    let html_url = extract_json_str_field(&body, "html_url")
+        .unwrap_or_else(|| format!("https://github.com/{GITHUB_REPO}/releases"));
+
+    // CoreFlow_Setup.exe 다운로드 URL 추출 (없으면 태그 기본 다운로드 경로 사용)
+    let mut download_url = String::new();
+    let mut search_slice = body.as_ref();
+    while let Some(pos) = search_slice.find("\"browser_download_url\"") {
+        let sub = &search_slice[pos..];
+        if let Some(u) = extract_json_str_field(sub, "browser_download_url") {
+            if u.to_ascii_lowercase().ends_with(".exe") {
+                download_url = u;
+                break;
+            }
+        }
+        search_slice = &search_slice[pos + 22..];
+    }
+    if download_url.is_empty() {
+        download_url = format!(
+            "https://github.com/{GITHUB_REPO}/releases/download/{}/CoreFlow_Setup.exe",
+            tag_raw.trim()
+        );
+    }
+
+    format!(
+        r#"{{"ok":true,"has_update":{},"current_version":"{}","latest_version":"{}","tag_name":"{}","download_url":"{}","html_url":"{}","notes":"{}"}}"#,
+        has_update,
+        json_escape(APP_VERSION),
+        json_escape(latest_clean),
+        json_escape(tag_raw.trim()),
+        json_escape(&download_url),
+        json_escape(&html_url),
+        json_escape(&notes)
+    )
+}
+
+/// GitHub Release에서 최신 `CoreFlow_Setup.exe`를 다운로드하여 무인 업데이트(`--silent-update`) 실행
+fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
+    if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
+        && !download_url.starts_with("https://objects.githubusercontent.com/")
+    {
+        return r#"{"ok":false,"error":"허용되지 않은 업데이트 다운로드 경로입니다."}"#.to_string();
+    }
+
+    let tmp_installer = std::env::temp_dir().join("CoreFlow_Setup_Update.exe");
+    let _ = std::fs::remove_file(&tmp_installer);
+
+    let status = Command::new("curl.exe")
+        .args([
+            "-sL",
+            "--fail",
+            "--max-time",
+            "120",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            "-o",
+        ])
+        .arg(&tmp_installer)
+        .arg(download_url)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+
+    let downloaded_ok = status.map(|s| s.success()).unwrap_or(false)
+        && std::fs::metadata(&tmp_installer)
+            .map(|m| m.len() > 500_000)
+            .unwrap_or(false);
+
+    if !downloaded_ok {
+        return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow_Setup.exe 설치 파일을 다운로드하지 못했습니다. Release에 CoreFlow_Setup.exe 파일이 첨부되어 있는지 확인해 주세요."}"#.to_string();
+    }
+
+    let current_install_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
+        .unwrap_or_else(|| r"C:\Program Files\CoreFlow".to_string());
+
+    if let Ok(guard) = state.lock() {
+        save_game_sessions(&guard.game_sessions);
+    }
+
+    let spawn_res = Command::new(&tmp_installer)
+        .args(["--silent-update", "--dir", &current_install_dir])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+
+    if spawn_res.is_err() {
+        return r#"{"ok":false,"error":"업데이트 설치 마법사 실행에 실패했습니다."}"#.to_string();
+    }
+
+    // 400ms 후 현재 프로세스 종료하여 업데이트 설치기가 파일을 교체할 수 있도록 함
+    thread::spawn(|| {
+        thread::sleep(Duration::from_millis(450));
+        std::process::exit(0);
+    });
+
+    r#"{"ok":true}"#.to_string()
+}
+
 /// 현재 사용자가 조작 중인 Windows 전면(포그라운드) 활성 창의 프로세스 ID와 창 제목 반환 (타임아웃 적용으로 교착 방지)
 fn get_foreground_window_info() -> Option<(u32, String)> {
     unsafe {
@@ -3595,6 +3785,42 @@ fn handle_client(
             body
         );
         let _ = stream.write_all(resp.as_bytes());
+    } else if first_line.starts_with("GET /api/check_update") {
+        let json = check_github_update();
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            json.len(),
+            json
+        );
+        let _ = stream.write_all(resp.as_bytes());
+    } else if first_line.starts_with("POST /api/perform_update") {
+        let dl_url = parse_query_str(&first_line, "url")
+            .map(|v| url_decode(&v))
+            .unwrap_or_default();
+        let json = perform_github_self_update(&dl_url, state);
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            json.len(),
+            json
+        );
+        let _ = stream.write_all(resp.as_bytes());
+    } else if first_line.starts_with("POST /api/open_external") {
+        let ext_url = parse_query_str(&first_line, "url")
+            .map(|v| url_decode(&v))
+            .unwrap_or_default();
+        if ext_url.starts_with("https://github.com/neverloselkb/coreFlow") {
+            let _ = Command::new("cmd")
+                .args(["/C", "start", "", &ext_url])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+        let body = r#"{"ok":true}"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/quit") || first_line.starts_with("GET /api/quit") {
         if now_secs() < SUPPRESS_QUIT_UNTIL.load(Ordering::SeqCst) {
             // 자동 복구로 닫히는 이전 창의 종료 요청은 무시
@@ -3620,6 +3846,7 @@ fn handle_client(
                 &format!("let themeOverride = '{saved_mode}';"),
             )
             .replace("__COREFLOW_SESSION_TOKEN__", session_token)
+            .replace("__COREFLOW_APP_VERSION__", APP_VERSION)
             .replace("/*__COREFLOW_INITIAL_TODOS__*/[]", &saved_todos)
             .replace("/*__COREFLOW_INITIAL_ALERTS__*/null", &saved_alerts);
         let resp = format!(
@@ -5811,6 +6038,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <button id="btn-minihud" class="btn secondary" onclick="enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
           🗗 미니 HUD
         </button>
+        <button id="btn-update-check" class="btn secondary" onclick="openUpdateModal(true)" title="GitHub 저장소(neverloselkb/coreFlow)에서 최신 버전 업데이트를 확인하고 자동 설치합니다">
+          🔄 <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
+        </button>
         <select id="theme-mode-select" class="select-input" onchange="onChangeThemeOverride()" title="테마 모드 선택">
           <option value="auto">🖥️ 테마 자동</option>
           <option value="light">☀️ 라이트</option>
@@ -5836,6 +6066,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
           <button class="btn secondary" onclick="snoozeAlerts()" title="설정된 쿨타임 동안 경고 배너와 알림음을 일시 숨깁니다">🔕 일시 숨김</button>
           <button class="btn" onclick="openAlertSettings()">⚙️ 알림 설정</button>
+        </div>
+      </div>
+
+      <!-- GitHub 새 버전 업데이트 알림 배너 -->
+      <div id="update-notify-banner" class="live-alert-banner hidden" style="border-color: var(--neon-green); background: rgba(0, 200, 117, 0.12);">
+        <div class="live-alert-left">
+          <span style="font-size: 18px; flex-shrink: 0;">🎉</span>
+          <div class="live-alert-text">
+            <div id="update-banner-title" style="font-weight: 800; font-size: 13.5px; color: var(--neon-green);">새로운 CoreFlow 업데이트가 출시되었습니다!</div>
+            <div id="update-banner-desc" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">GitHub Releases에서 원클릭으로 최신 버전을 자동 다운로드 및 설치할 수 있습니다.</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+          <button class="btn secondary" onclick="document.getElementById('update-notify-banner').classList.add('hidden')">나중에</button>
+          <button class="btn" style="background: var(--neon-green); color: #000; font-weight: 800;" onclick="openUpdateModal(false)">🚀 지금 업데이트 확인</button>
         </div>
       </div>
 
@@ -6771,6 +7016,62 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- GitHub 자동 업데이트 확인 & 원클릭 설치 모달 -->
+  <div id="update-overlay" class="detail-overlay hidden">
+    <div class="detail-header">
+      <div class="detail-title-group">
+        <div class="detail-title">🔄 CoreFlow 버전 정보 및 GitHub 자동 업데이트</div>
+        <div class="detail-sub">공식 저장소 (github.com/neverloselkb/coreFlow) Releases 연동 자동 업데이트 시스템</div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn secondary" onclick="checkForUpdates(true)">🔍 다시 확인</button>
+        <button class="btn secondary" onclick="openGithubPage('https://github.com/neverloselkb/coreFlow/releases')">🌐 GitHub Releases 열기</button>
+        <button class="btn" onclick="closeUpdateModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+      </div>
+    </div>
+    <div class="detail-body" style="max-width: 780px; margin: 0 auto; width: 100%; gap: 16px;">
+      <div class="card" style="padding: 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 14px;">
+            <img src="/favicon.ico" style="width: 52px; height: 52px; border-radius: 12px;">
+            <div>
+              <div style="font-size: 18px; font-weight: 800; color: var(--text-normal); display: flex; align-items: center; gap: 8px;">
+                <span>CoreFlow</span>
+                <span class="badge" id="upd-current-badge">현재 v__COREFLOW_APP_VERSION__</span>
+                <span class="badge" id="upd-latest-badge" style="color: var(--neon-green);">확인 중...</span>
+              </div>
+              <div id="upd-status-headline" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                GitHub 저장소에서 최신 릴리스 정보를 확인하고 있습니다...
+              </div>
+            </div>
+          </div>
+          <div id="upd-action-area">
+            <button id="btn-do-update" class="btn" style="padding: 10px 18px; font-size: 13.5px; font-weight: 800; display: none;" onclick="triggerSelfUpdate()">
+              🚀 원클릭 자동 업데이트 및 재시작
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 18px;">
+        <div class="card-head" style="margin-bottom: 10px;">
+          <span class="card-title">📋 릴리스 노트 (Release Notes)</span>
+          <span class="badge" id="upd-tag-label">neverloselkb/coreFlow</span>
+        </div>
+        <div id="upd-release-notes" style="font-size: 13px; color: var(--text-normal); line-height: 1.6; white-space: pre-wrap; background: var(--bg-primary); padding: 14px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 280px; overflow-y: auto;">
+          릴리스 정보를 불러오는 중...
+        </div>
+      </div>
+
+      <div class="card" style="padding: 16px; font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
+        <div style="font-weight: 800; color: var(--text-normal); margin-bottom: 4px;">💡 개발자 배포 가이드 (새 버전 업데이트 배포 방법)</div>
+        <div>1. 코드 수정 후 <code>Cargo.toml</code>의 <code>version</code>을 올리고(예: <code>1.1.0</code>) <code>CoreFlow</code>와 <code>CoreFlow_Setup</code>을 빌드합니다.</div>
+        <div>2. GitHub 저장소(<strong>neverloselkb/coreFlow</strong>)의 <strong>[Releases] → [Draft a new release]</strong>에서 태그(예: <code>v1.1.0</code>)를 생성하고, 빌드된 <strong><code>CoreFlow_Setup.exe</code></strong> 파일을 첨부하여 게시(Publish)합니다.</div>
+        <div>3. 기존 사용자들이 CoreFlow를 실행하면 자동으로 새 버전을 감지하여 데이터 손실 없이 원클릭으로 업데이트됩니다!</div>
+      </div>
+    </div>
+  </div>
+
   <!-- 프로세스 우클릭 커스텀 컨텍스트 메뉴 -->
   <div id="ctx-menu" class="ctx-menu hidden">
     <div id="ctx-header" class="ctx-header">process.exe (PID: 0)</div>
@@ -6810,6 +7111,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       closeRecordAnalysis();
       closeAlertSettings();
       closeGameScanModal();
+      closeUpdateModal();
     }
   });
 
@@ -7030,6 +7332,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeDetailView();
     closeRecordAnalysis();
     closeAlertSettings();
+    closeUpdateModal();
     const overlay = document.getElementById('gamescan-overlay');
     if (overlay) overlay.classList.remove('hidden');
     refreshGameScanData();
@@ -9960,6 +10263,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   function openDetailView(type) {
+    closeUpdateModal();
     activeDetailType = type;
     const overlay = document.getElementById('detail-overlay');
     overlay.classList.remove('hidden');
@@ -10391,6 +10695,168 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
+  // ==================== GitHub Releases 기반 자동 업데이트 ====================
+  let latestUpdateInfo = null;
+
+  function openUpdateModal(forceCheck = false) {
+    closeDetailView();
+    closeRecordAnalysis();
+    closeAlertSettings();
+    closeGameScanModal();
+    const overlay = document.getElementById('update-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    if (forceCheck || !latestUpdateInfo) {
+      checkForUpdates(true);
+    } else {
+      renderUpdateModal(latestUpdateInfo);
+    }
+  }
+
+  function closeUpdateModal() {
+    const overlay = document.getElementById('update-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+      overlay.classList.add('hidden');
+    }
+  }
+
+  function openGithubPage(url) {
+    apiFetch(`/api/open_external?url=${encodeURIComponent(url)}`, { method: 'POST' }).catch(() => {});
+  }
+
+  async function checkForUpdates(isManual = false) {
+    const latestBadge = document.getElementById('upd-latest-badge');
+    const headline = document.getElementById('upd-status-headline');
+    if (isManual) {
+      if (latestBadge) {
+        latestBadge.textContent = '확인 중...';
+        latestBadge.style.color = 'var(--text-muted)';
+      }
+      if (headline) headline.textContent = 'GitHub (neverloselkb/coreFlow) 서버에서 최신 릴리스 정보를 조회하고 있습니다...';
+    }
+
+    try {
+      const res = await apiFetch('/api/check_update');
+      const data = await res.json();
+      if (!data.ok) {
+        if (isManual && headline) {
+          headline.textContent = `⚠️ 업데이트 확인 실패: ${data.error || '네트워크 연결을 확인해 주세요.'}`;
+        }
+        return;
+      }
+      latestUpdateInfo = data;
+      renderUpdateModal(data);
+
+      const topBtn = document.getElementById('btn-update-check');
+      const topBtnText = document.getElementById('btn-update-text');
+      const banner = document.getElementById('update-notify-banner');
+      const bannerTitle = document.getElementById('update-banner-title');
+      const bannerDesc = document.getElementById('update-banner-desc');
+
+      if (data.has_update) {
+        if (topBtn && topBtnText) {
+          topBtn.classList.remove('secondary');
+          topBtn.style.borderColor = 'var(--neon-green)';
+          topBtn.style.backgroundColor = 'rgba(0, 200, 117, 0.18)';
+          topBtn.style.color = 'var(--neon-green)';
+          topBtnText.textContent = `NEW v${data.latest_version}`;
+        }
+        if (banner && bannerTitle && bannerDesc) {
+          bannerTitle.textContent = `🎉 새로운 CoreFlow v${data.latest_version} 업데이트가 출시되었습니다! (현재 v${data.current_version})`;
+          bannerDesc.textContent = `원클릭 자동 업데이트로 모든 설정과 게임 플레이 기록을 유지한 채 즉시 최신 버전으로 업그레이드할 수 있습니다.`;
+          banner.classList.remove('hidden');
+        }
+        if (isManual) {
+          showToast(`🎉 새 버전(v${data.latest_version})이 감지되었습니다!`);
+        }
+      } else if (isManual) {
+        showToast(`✅ 현재 최신 버전(v${data.current_version})을 사용 중입니다.`);
+      }
+    } catch (e) {
+      if (isManual && headline) {
+        headline.textContent = '⚠️ GitHub 서버와 통신하는 중 오류가 발생했습니다.';
+      }
+    }
+  }
+
+  function renderUpdateModal(data) {
+    const curBadge = document.getElementById('upd-current-badge');
+    const latestBadge = document.getElementById('upd-latest-badge');
+    const headline = document.getElementById('upd-status-headline');
+    const notesEl = document.getElementById('upd-release-notes');
+    const tagEl = document.getElementById('upd-tag-label');
+    const btnDoUpdate = document.getElementById('btn-do-update');
+
+    if (curBadge) curBadge.textContent = `현재 v${data.current_version}`;
+    if (tagEl) tagEl.textContent = data.tag_name ? `Tag: ${data.tag_name}` : 'neverloselkb/coreFlow';
+    if (notesEl) {
+      notesEl.textContent = (data.notes && data.notes.trim())
+        ? data.notes
+        : '등록된 릴리스 노트가 없습니다.';
+    }
+
+    if (data.has_update) {
+      if (latestBadge) {
+        latestBadge.textContent = `🚀 최신 v${data.latest_version} 업데이트 가능`;
+        latestBadge.style.color = 'var(--neon-green)';
+      }
+      if (headline) {
+        headline.innerHTML = `<strong style="color:var(--neon-green);">새로운 버전(v${escapeHtml(data.latest_version)})이 배포되었습니다!</strong> 우측 버튼을 누르면 자동으로 다운로드 및 설치 후 재시작됩니다.`;
+      }
+      if (btnDoUpdate) {
+        btnDoUpdate.style.display = 'inline-flex';
+        btnDoUpdate.disabled = false;
+        btnDoUpdate.textContent = `🚀 v${data.latest_version} 원클릭 자동 업데이트`;
+      }
+    } else {
+      if (latestBadge) {
+        latestBadge.textContent = `✅ 최신 버전 사용 중 (v${data.current_version})`;
+        latestBadge.style.color = 'var(--brand)';
+      }
+      if (headline) {
+        headline.textContent = '현재 설치된 CoreFlow가 가장 최신 버전입니다.';
+      }
+      if (btnDoUpdate) {
+        btnDoUpdate.style.display = 'none';
+      }
+    }
+  }
+
+  async function triggerSelfUpdate() {
+    if (!latestUpdateInfo || !latestUpdateInfo.download_url) {
+      showToast('⚠️ 업데이트 다운로드 경로를 찾을 수 없습니다.');
+      return;
+    }
+    const btn = document.getElementById('btn-do-update');
+    const headline = document.getElementById('upd-status-headline');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ GitHub에서 최신 버전 다운로드 및 설치 중...';
+    }
+    if (headline) {
+      headline.innerHTML = '<strong style="color:var(--brand);">GitHub Releases에서 최신 CoreFlow_Setup.exe를 다운로드하고 있습니다. 완료되면 프로그램이 자동으로 재시작됩니다...</strong>';
+    }
+    try {
+      const res = await apiFetch(`/api/perform_update?url=${encodeURIComponent(latestUpdateInfo.download_url)}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('🚀 다운로드 완료! 잠시 후 최신 버전으로 자동 재시작됩니다...');
+      } else {
+        showToast(`⚠️ 업데이트 실패: ${data.error || '알 수 없는 오류'}`);
+        if (headline) headline.textContent = `❌ ${data.error || '업데이트에 실패했습니다.'}`;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = `🚀 v${latestUpdateInfo.latest_version} 원클릭 자동 업데이트`;
+        }
+      }
+    } catch (e) {
+      showToast('⚠️ 업데이트 요청 중 오류가 발생했습니다.');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '다시 시도';
+      }
+    }
+  }
+
   function quitApp() {
     navigator.sendBeacon('/api/quit?' + getWindowBoundsQuery());
     window.close();
@@ -10408,6 +10874,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   applyDashboardViewMode();
   fetchStats();
   setInterval(fetchStats, 1000);
+  setTimeout(() => checkForUpdates(false), 3000);
 </script>
 </body>
 </html>
