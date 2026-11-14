@@ -1,0 +1,15 @@
+[package]
+name = "CoreFlow"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "CoreFlow"
+path = "src/bin/tui_app.rs"
+
+[[bin]]
+name = "CoreFlow_Setup"
+path = "src/bin/setup.rs"
+
+[dependencies]
+sysinfo = "0.33"
