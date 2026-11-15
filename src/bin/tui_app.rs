@@ -1055,13 +1055,20 @@ fn check_github_update() -> String {
     let html_url = extract_json_str_field(&body, "html_url")
         .unwrap_or_else(|| format!("https://github.com/{GITHUB_REPO}/releases"));
 
-    // CoreFlow_Setup.exe 다운로드 URL 추출 (없으면 태그 기본 다운로드 경로 사용)
+    // 플랫폼별 업데이트 바이너리/패키지 다운로드 URL 추출
+    #[cfg(target_os = "windows")]
+    let target_ext = ".exe";
+    #[cfg(target_os = "macos")]
+    let target_ext = ".zip";
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let target_ext = ".tar.gz";
+
     let mut download_url = String::new();
     let mut search_slice = body.as_ref();
     while let Some(pos) = search_slice.find("\"browser_download_url\"") {
         let sub = &search_slice[pos..];
         if let Some(u) = extract_json_str_field(sub, "browser_download_url") {
-            if u.to_ascii_lowercase().ends_with(".exe") {
+            if u.to_ascii_lowercase().ends_with(target_ext) {
                 download_url = u;
                 break;
             }
@@ -1069,10 +1076,20 @@ fn check_github_update() -> String {
         search_slice = &search_slice[pos + 22..];
     }
     if download_url.is_empty() {
-        download_url = format!(
-            "https://github.com/{GITHUB_REPO}/releases/download/{}/CoreFlow_Setup.exe",
-            tag_raw.trim()
-        );
+        #[cfg(target_os = "windows")]
+        {
+            download_url = format!(
+                "https://github.com/{GITHUB_REPO}/releases/download/{}/CoreFlow_Setup.exe",
+                tag_raw.trim()
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            download_url = format!(
+                "https://github.com/{GITHUB_REPO}/releases/download/{}/CoreFlow-macOS-universal.zip",
+                tag_raw.trim()
+            );
+        }
     }
 
     format!(
@@ -1151,9 +1168,103 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
     r#"{"ok":true}"#.to_string()
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+/// GitHub Release에서 최신 `CoreFlow-macOS-universal.zip`을 다운로드하여 앱 번들 교체 및 자동 재시작
+fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
+    if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
+        && !download_url.starts_with("https://objects.githubusercontent.com/")
+    {
+        return r#"{"ok":false,"error":"허용되지 않은 업데이트 다운로드 경로입니다."}"#.to_string();
+    }
+
+    let tmp_zip = std::env::temp_dir().join("CoreFlow_Update.zip");
+    let _ = std::fs::remove_file(&tmp_zip);
+    let tmp_extract_dir = std::env::temp_dir().join("CoreFlow_Update_Extracted");
+    let _ = std::fs::remove_dir_all(&tmp_extract_dir);
+    let _ = std::fs::create_dir_all(&tmp_extract_dir);
+
+    let status = Command::new("curl")
+        .args([
+            "-sL",
+            "--fail",
+            "--max-time",
+            "180",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            "-o",
+        ])
+        .arg(&tmp_zip)
+        .arg(download_url)
+        .status();
+
+    let downloaded_ok = status.map(|s| s.success()).unwrap_or(false)
+        && std::fs::metadata(&tmp_zip)
+            .map(|m| m.len() > 100_000)
+            .unwrap_or(false);
+
+    if !downloaded_ok {
+        return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow 업데이트 패키지를 다운로드하지 못했습니다."}"#.to_string();
+    }
+
+    let unzip_status = Command::new("unzip")
+        .args(["-q", "-o"])
+        .arg(&tmp_zip)
+        .args(["-d"])
+        .arg(&tmp_extract_dir)
+        .status();
+
+    if !unzip_status.map(|s| s.success()).unwrap_or(false) {
+        return r#"{"ok":false,"error":"업데이트 압축 파일(ZIP)의 압축 해제에 실패했습니다."}"#.to_string();
+    }
+
+    let extracted_app = tmp_extract_dir.join("CoreFlow.app");
+    if !extracted_app.exists() {
+        return r#"{"ok":false,"error":"압축 파일 내에서 CoreFlow.app 번들을 찾을 수 없습니다."}"#.to_string();
+    }
+
+    // 현재 실행 중인 .app 번들 경로 감지 (없으면 /Applications/CoreFlow.app 기본값)
+    let current_exe = std::env::current_exe().unwrap_or_default();
+    let current_app_bundle = current_exe
+        .parent() // Contents/MacOS
+        .and_then(|p| p.parent()) // Contents
+        .and_then(|p| p.parent()) // CoreFlow.app
+        .filter(|p| p.extension().map(|e| e == "app").unwrap_or(false))
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("/Applications/CoreFlow.app"));
+
+    let target_app_str = current_app_bundle.to_string_lossy().to_string();
+    let extracted_app_str = extracted_app.to_string_lossy().to_string();
+
+    if let Ok(guard) = state.lock() {
+        save_game_sessions(&guard.game_sessions);
+    }
+
+    // 백그라운드 쉘 스크립트 실행: 0.5초 대기 -> 기존 .app 삭제 -> 새 .app 복사 -> 격리 속성 해제 -> 앱 재실행
+    let update_script = format!(
+        r#"sleep 0.5; rm -rf "{}" && cp -R "{}" "{}" && xattr -dr com.apple.quarantine "{}" 2>/dev/null; open "{}""#,
+        target_app_str, extracted_app_str, target_app_str, target_app_str, target_app_str
+    );
+
+    let spawn_res = Command::new("sh")
+        .args(["-c", &update_script])
+        .spawn();
+
+    if spawn_res.is_err() {
+        return r#"{"ok":false,"error":"macOS 업데이트 갱신 스크립트 실행에 실패했습니다."}"#.to_string();
+    }
+
+    // 350ms 후 현재 프로세스를 종료하여 스크립트가 앱을 교체하고 다시 열 수 있도록 함
+    thread::spawn(|| {
+        thread::sleep(Duration::from_millis(350));
+        std::process::exit(0);
+    });
+
+    r#"{"ok":true}"#.to_string()
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn perform_github_self_update(_download_url: &str, _state: &Arc<Mutex<SharedState>>) -> String {
-    r#"{"ok":false,"error":"macOS에서는 GitHub Release 페이지에서 최신 CoreFlow.app을 다운로드하여 사용해 주세요."}"#.to_string()
+    r#"{"ok":false,"error":"지원되지 않는 운영체제입니다."}"#.to_string()
 }
 
 #[cfg(target_os = "windows")]
@@ -13099,7 +13210,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       btn.textContent = '⏳ GitHub에서 최신 버전 다운로드 및 설치 중...';
     }
     if (headline) {
-      headline.innerHTML = '<strong style="color:var(--brand);">GitHub Releases에서 최신 CoreFlow_Setup.exe를 다운로드하고 있습니다. 완료되면 프로그램이 자동으로 재시작됩니다...</strong>';
+      headline.innerHTML = '<strong style="color:var(--brand);">GitHub Releases에서 최신 업데이트 패키지를 다운로드하고 있습니다. 완료되면 프로그램이 자동으로 재시작됩니다...</strong>';
     }
     try {
       const res = await apiFetch(`/api/perform_update?url=${encodeURIComponent(latestUpdateInfo.download_url)}`, { method: 'POST' });
