@@ -589,6 +589,7 @@ fn query_all_active_pid_fps() -> std::collections::HashMap<u32, PidFpsMetrics> {
     result
 }
 
+#[cfg(target_os = "windows")]
 fn stop_fps_etw_session() {
     let session_name = to_wide(ETW_FPS_SESSION_NAME);
     let total_size = std::mem::size_of::<EventTraceProperties>() + session_name.len() * 2 + 64;
@@ -601,7 +602,11 @@ fn stop_fps_etw_session() {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+fn stop_fps_etw_session() {}
+
 /// NVIDIA 오버레이 / PresentMon과 동일한 Windows ETW (DXGI + D3D9 Present) 하드웨어 프레임 측정 스레드
+#[cfg(target_os = "windows")]
 fn spawn_fps_etw_monitor() {
     thread::spawn(|| {
         let session_name = to_wide(ETW_FPS_SESSION_NAME);
@@ -693,6 +698,9 @@ fn spawn_fps_etw_monitor() {
     });
 }
 
+#[cfg(not(target_os = "windows"))]
+fn spawn_fps_etw_monitor() {}
+
 fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -712,6 +720,7 @@ fn get_icon_cache() -> &'static Mutex<std::collections::HashMap<String, Option<V
     ICON_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+#[cfg(target_os = "windows")]
 unsafe fn hicon_to_ico_bytes(hicon: isize) -> Option<Vec<u8>> {
     if hicon == 0 {
         return None;
@@ -870,6 +879,7 @@ unsafe fn hicon_to_ico_bytes(hicon: isize) -> Option<Vec<u8>> {
     Some(ico)
 }
 
+#[cfg(target_os = "windows")]
 fn extract_exe_icon_ico(exe_path: &str) -> Option<Vec<u8>> {
     if exe_path.is_empty() || !std::path::Path::new(exe_path).exists() {
         return None;
@@ -896,6 +906,11 @@ fn extract_exe_icon_ico(exe_path: &str) -> Option<Vec<u8>> {
             return res;
         }
     }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn extract_exe_icon_ico(_exe_path: &str) -> Option<Vec<u8>> {
     None
 }
 
@@ -1187,6 +1202,7 @@ fn get_foreground_window_info() -> Option<(u32, String)> {
 }
 
 /// 외부 프로세스(reg.exe) 실행 없이 순수 Win32 API로 DWORD 레지스트리 값 읽기
+#[cfg(target_os = "windows")]
 fn reg_read_dword(root: isize, subkey: &str, value_name: &str) -> Option<u32> {
     let subkey_w = to_wide(subkey);
     let val_w = to_wide(value_name);
@@ -1218,7 +1234,13 @@ fn reg_read_dword(root: isize, subkey: &str, value_name: &str) -> Option<u32> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+fn reg_read_dword(_root: isize, _subkey: &str, _value_name: &str) -> Option<u32> {
+    None
+}
+
 /// 외부 프로세스(reg.exe) 실행 없이 순수 Win32 API로 문자열(REG_SZ) 레지스트리 값 읽기
+#[cfg(target_os = "windows")]
 fn reg_read_string(root: isize, subkey: &str, value_name: &str) -> Option<String> {
     let subkey_w = to_wide(subkey);
     let val_w = to_wide(value_name);
@@ -1255,6 +1277,12 @@ fn reg_read_string(root: isize, subkey: &str, value_name: &str) -> Option<String
     None
 }
 
+#[cfg(not(target_os = "windows"))]
+fn reg_read_string(_root: isize, _subkey: &str, _value_name: &str) -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "windows")]
 fn reg_write_string(root: isize, subkey: &str, value_name: &str, data: &str) -> bool {
     let subkey_w = to_wide(subkey);
     let val_w = to_wide(value_name);
@@ -1280,6 +1308,12 @@ fn reg_write_string(root: isize, subkey: &str, value_name: &str, data: &str) -> 
     set_status == 0
 }
 
+#[cfg(not(target_os = "windows"))]
+fn reg_write_string(_root: isize, _subkey: &str, _value_name: &str, _data: &str) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
 fn reg_delete_value(root: isize, subkey: &str, value_name: &str) -> bool {
     let subkey_w = to_wide(subkey);
     let val_w = to_wide(value_name);
@@ -1295,6 +1329,12 @@ fn reg_delete_value(root: isize, subkey: &str, value_name: &str) -> bool {
     del_status == 0
 }
 
+#[cfg(not(target_os = "windows"))]
+fn reg_delete_value(_root: isize, _subkey: &str, _value_name: &str) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
 fn reg_find_subkey_string(root: isize, parent_key: &str, value_name: &str) -> Option<String> {
     let parent_w = to_wide(parent_key);
     let mut hkey: isize = 0;
@@ -1337,6 +1377,11 @@ fn reg_find_subkey_string(root: isize, parent_key: &str, value_name: &str) -> Op
         RegCloseKey(hkey);
     }
     found
+}
+
+#[cfg(not(target_os = "windows"))]
+fn reg_find_subkey_string(_root: isize, _parent_key: &str, _value_name: &str) -> Option<String> {
+    None
 }
 
 fn generate_session_token() -> String {
@@ -3848,6 +3893,7 @@ fn launch_desktop_window(url: &str) {
 }
 
 /// 실행된 CoreFlow 앱 창의 타이틀바 및 작업 표시줄 아이콘을 내장 리소스 아이콘(ID 1)으로 즉시 동기화
+#[cfg(target_os = "windows")]
 fn spawn_window_icon_applier() {
     thread::spawn(|| {
         const IMAGE_ICON: u32 = 1;
@@ -3896,11 +3942,15 @@ fn spawn_window_icon_applier() {
     });
 }
 
+#[cfg(not(target_os = "windows"))]
+fn spawn_window_icon_applier() {}
+
 fn parse_query_i32(first_line: &str, key: &str) -> Option<i32> {
     parse_query_str(first_line, key)?.parse::<i32>().ok()
 }
 
 /// 컴팩트 미니 HUD 전환 시 Win32 SetWindowPos로 창 항상 위(Topmost) 고정 및 창 크기/위치를 즉시 제어
+#[cfg(target_os = "windows")]
 fn control_app_window(
     topmost: Option<bool>,
     x: Option<i32>,
@@ -3956,6 +4006,17 @@ fn control_app_window(
     };
 
     unsafe { SetWindowPos(hwnd, insert_after, px, py, pw, ph, flags) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn control_app_window(
+    _topmost: Option<bool>,
+    _x: Option<i32>,
+    _y: Option<i32>,
+    _w: Option<i32>,
+    _h: Option<i32>,
+) -> bool {
+    true
 }
 
 fn kill_process_by_pid(state: &Arc<Mutex<SharedState>>, pid: u32) -> bool {
@@ -4753,6 +4814,7 @@ const APP_WINDOW_TITLE: &str = "CoreFlow — 시스템 모니터링 & 집중 스
 /// 창 자동 복구 중에는 이전 창이 보내는 종료 요청(/api/quit)을 무시하기 위한 기한(UNIX 초)
 static SUPPRESS_QUIT_UNTIL: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(target_os = "windows")]
 fn find_app_window() -> isize {
     let title_w = to_wide(APP_WINDOW_TITLE);
     let exact = unsafe { FindWindowW(std::ptr::null(), title_w.as_ptr()) };
@@ -4786,7 +4848,13 @@ fn find_app_window() -> isize {
     0
 }
 
+#[cfg(not(target_os = "windows"))]
+fn find_app_window() -> isize {
+    0
+}
+
 /// 이전(멈춘) CoreFlow 창이 남아 있으면 정상 종료 메시지(WM_CLOSE)를 보내 정리
+#[cfg(target_os = "windows")]
 fn close_stale_app_window() {
     const WM_CLOSE: u32 = 0x0010;
     for _ in 0..5 {
@@ -4800,6 +4868,40 @@ fn close_stale_app_window() {
         thread::sleep(Duration::from_millis(600));
     }
 }
+
+#[cfg(not(target_os = "windows"))]
+fn close_stale_app_window() {}
+
+#[cfg(target_os = "windows")]
+fn is_window_minimized(hwnd: isize) -> bool {
+    unsafe { IsIconic(hwnd) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_window_minimized(_hwnd: isize) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn is_window_os_hung(hwnd: isize) -> bool {
+    unsafe { IsHungAppWindow(hwnd) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_window_os_hung(_hwnd: isize) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn close_window_handle(hwnd: isize) {
+    const WM_CLOSE: u32 = 0x0010;
+    unsafe {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn close_window_handle(_hwnd: isize) {}
 
 fn append_watchdog_log(msg: &str) {
     let path = get_logs_dir().join("coreflow_watchdog.log");
@@ -4958,7 +5060,6 @@ fn run_worker(restarted: bool) {
         let st = Arc::clone(&state);
         let url_c = url.clone();
         thread::spawn(move || {
-            const WM_CLOSE: u32 = 0x0010;
             let started = Instant::now();
             let mut seen_window = false;
             let mut missing_since: Option<Instant> = None;
@@ -4973,8 +5074,8 @@ fn run_worker(restarted: bool) {
                     seen_window = true;
                     missing_since = None;
 
-                    let minimized = unsafe { IsIconic(hwnd) } != 0;
-                    let os_hung = unsafe { IsHungAppWindow(hwnd) } != 0;
+                    let minimized = is_window_minimized(hwnd);
+                    let os_hung = is_window_os_hung(hwnd);
                     let stale_secs = now_secs().saturating_sub(last_hb.load(Ordering::SeqCst));
                     let ui_stalled = connected.load(Ordering::SeqCst) && stale_secs > 45 && !minimized;
 
@@ -4986,10 +5087,8 @@ fn run_worker(restarted: bool) {
                             append_watchdog_log(&format!(
                                 "UI 멈춤 감지 (응답없음={os_hung}, 하트비트 {stale_secs}초 지연) → 창 자동 복구"
                             ));
-                            unsafe {
-                                SUPPRESS_QUIT_UNTIL.store(now_secs() + 15, Ordering::SeqCst);
-                                PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                            }
+                            SUPPRESS_QUIT_UNTIL.store(now_secs() + 15, Ordering::SeqCst);
+                            close_window_handle(hwnd);
                             thread::sleep(Duration::from_millis(1500));
                             launch_desktop_window(&url_c);
                             spawn_window_icon_applier();
