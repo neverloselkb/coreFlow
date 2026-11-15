@@ -47,7 +47,14 @@ jobs:
           targets: aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Build Apple Silicon (aarch64)
-        run: cargo build --release --target aarch64-apple-darwin --bin CoreFlow
+        run: |
+          if ! cargo build --release --target aarch64-apple-darwin --bin CoreFlow 2> build_err.txt; then
+            cat build_err.txt
+            head -n 20 build_err.txt | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
 
       - name: Build Intel Mac (x86_64)
         run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow
