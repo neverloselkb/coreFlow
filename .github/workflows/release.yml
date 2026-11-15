@@ -20,11 +20,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Build CoreFlow Main Binary
+        run: cargo build --release --bin CoreFlow
 
-      - name: Build Windows Executables
-        run: cargo build --release --bin CoreFlow --bin CoreFlow_Setup
+      - name: Build CoreFlow Setup Installer
+        run: cargo build --release --bin CoreFlow_Setup
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -43,11 +43,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Add Apple Silicon and Intel Targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Build Apple Silicon (aarch64)
         run: cargo build --release --target aarch64-apple-darwin --bin CoreFlow
@@ -128,6 +126,8 @@ jobs:
             release-assets/CoreFlow.exe
             release-assets/CoreFlow_Setup.exe
             release-assets/CoreFlow-macOS-universal.zip
+          tag_name: ${{ github.ref_name }}
+          name: CoreFlow ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
