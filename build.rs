@@ -416,10 +416,12 @@ fn main() {
         let _ = f.write_all(&ico_bytes);
     }
 
-    let obj_path = out_dir.join("coreflow_icon.o");
-    if let Ok(mut f) = File::create(&obj_path) {
-        let _ = f.write_all(&coff_bytes);
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os == "windows" {
+        let obj_path = out_dir.join("coreflow_icon.o");
+        if let Ok(mut f) = File::create(&obj_path) {
+            let _ = f.write_all(&coff_bytes);
+        }
+        println!("cargo:rustc-link-arg-bins={}", obj_path.display());
     }
-
-    println!("cargo:rustc-link-arg-bins={}", obj_path.display());
 }

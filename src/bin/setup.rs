@@ -1,5 +1,12 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
+#[cfg(not(windows))]
+fn main() {
+    println!("CoreFlow_Setup is only supported on Windows.");
+}
+
+#[cfg(windows)]
+mod win_setup {
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
@@ -1035,7 +1042,7 @@ fn handle_client(
     }
 }
 
-fn main() {
+pub fn main() {
     let args: Vec<String> = env::args().collect();
     let initial_uninstall_mode = args.iter().any(|a| a == "--uninstall" || a == "/uninstall");
     let silent_update_mode = args.iter().any(|a| a == "--silent-update");
@@ -1594,3 +1601,9 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>
 "#;
+}
+
+#[cfg(windows)]
+fn main() {
+    win_setup::main();
+}

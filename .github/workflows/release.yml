@@ -1,0 +1,133 @@
+name: Release Multi-Platform Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Binaries
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Windows Executables
+        run: cargo build --release --bin CoreFlow --bin CoreFlow_Setup
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            target/release/CoreFlow.exe
+            target/release/CoreFlow_Setup.exe
+
+  build-macos:
+    name: Build macOS Universal App
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Apple Silicon (aarch64)
+        run: cargo build --release --target aarch64-apple-darwin --bin CoreFlow
+
+      - name: Build Intel Mac (x86_64)
+        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow
+
+      - name: Assemble Universal Binary & macOS App Bundle
+        run: |
+          mkdir -p CoreFlow.app/Contents/MacOS
+          mkdir -p CoreFlow.app/Contents/Resources
+          lipo -create \
+            target/aarch64-apple-darwin/release/CoreFlow \
+            target/x86_64-apple-darwin/release/CoreFlow \
+            -output CoreFlow.app/Contents/MacOS/CoreFlow
+          chmod +x CoreFlow.app/Contents/MacOS/CoreFlow
+
+          cat << 'EOF' > CoreFlow.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>CoreFlow</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.coreflow.app</string>
+              <key>CFBundleName</key>
+              <string>CoreFlow</string>
+              <key>CFBundleDisplayName</key>
+              <string>CoreFlow</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.4</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.4</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          zip -r CoreFlow-macOS-universal.zip CoreFlow.app
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: CoreFlow-macOS-universal.zip
+
+  create-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: release-assets
+
+      - name: Download macOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binaries
+          path: release-assets
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            release-assets/CoreFlow.exe
+            release-assets/CoreFlow_Setup.exe
+            release-assets/CoreFlow-macOS-universal.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true

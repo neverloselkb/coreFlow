@@ -1,9 +1,9 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+#![cfg_attr(not(target_os = "windows"), allow(dead_code, unused_imports, unused_variables))]
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    os::windows::process::CommandExt,
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -13,6 +13,27 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use sysinfo::{DiskKind, Disks, Networks, System};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+pub trait CommandNoWindow {
+    fn no_window(&mut self) -> &mut Self;
+}
+
+#[cfg(target_os = "windows")]
+impl CommandNoWindow for Command {
+    fn no_window(&mut self) -> &mut Self {
+        self.creation_flags(CREATE_NO_WINDOW)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl CommandNoWindow for Command {
+    fn no_window(&mut self) -> &mut Self {
+        self
+    }
+}
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const HKEY_CURRENT_USER: isize = 0x80000001u32 as i32 as isize;
@@ -613,7 +634,7 @@ fn spawn_fps_etw_monitor() {
                         if let Ok(user) = std::env::var("USERNAME") {
                             let _ = Command::new("net")
                                 .args(["localgroup", "*S-1-5-32-559", &user, "/add"])
-                                .creation_flags(CREATE_NO_WINDOW)
+                                .no_window()
                                 .status();
                         }
                     }
@@ -976,7 +997,8 @@ fn extract_json_str_field(json: &str, field: &str) -> Option<String> {
 /// GitHub Releases API (`neverloselkb/coreFlow`)를 조회하여 최신 버전 및 다운로드 URL 확인
 fn check_github_update() -> String {
     let api_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    let out = Command::new("curl.exe")
+    let curl_bin = if cfg!(windows) { "curl.exe" } else { "curl" };
+    let out = Command::new(curl_bin)
         .args([
             "-sL",
             "--max-time",
@@ -987,7 +1009,7 @@ fn check_github_update() -> String {
             "User-Agent: CoreFlow-Updater",
             &api_url,
         ])
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .output();
 
     let Ok(output) = out else {
@@ -1044,6 +1066,7 @@ fn check_github_update() -> String {
     )
 }
 
+#[cfg(target_os = "windows")]
 /// GitHub Release에서 최신 `CoreFlow_Setup.exe`를 다운로드하여 무인 업데이트(`--silent-update`) 실행
 fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
     if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
@@ -1067,7 +1090,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         ])
         .arg(&tmp_installer)
         .arg(download_url)
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .status();
 
     let downloaded_ok = status.map(|s| s.success()).unwrap_or(false)
@@ -1090,7 +1113,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
 
     let spawn_res = Command::new(&tmp_installer)
         .args(["--silent-update", "--dir", &current_install_dir])
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_window()
         .spawn();
 
     if spawn_res.is_err() {
@@ -1107,6 +1130,12 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
     r#"{"ok":true}"#.to_string()
 }
 
+#[cfg(not(target_os = "windows"))]
+fn perform_github_self_update(_download_url: &str, _state: &Arc<Mutex<SharedState>>) -> String {
+    r#"{"ok":false,"error":"macOS에서는 GitHub Release 페이지에서 최신 CoreFlow.app을 다운로드하여 사용해 주세요."}"#.to_string()
+}
+
+#[cfg(target_os = "windows")]
 /// 현재 사용자가 조작 중인 Windows 전면(포그라운드) 활성 창의 프로세스 ID와 창 제목 반환 (타임아웃 적용으로 교착 방지)
 fn get_foreground_window_info() -> Option<(u32, String)> {
     unsafe {
@@ -1144,6 +1173,11 @@ fn get_foreground_window_info() -> Option<(u32, String)> {
         };
         Some((pid, title))
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_foreground_window_info() -> Option<(u32, String)> {
+    None
 }
 
 /// 외부 프로세스(reg.exe) 실행 없이 순수 Win32 API로 DWORD 레지스트리 값 읽기
@@ -1351,6 +1385,7 @@ impl Default for WindowsTheme {
     }
 }
 
+#[cfg(target_os = "windows")]
 /// Windows 레지스트리에서 현재 앱 테마(라이트/다크) 및 강조 색(AccentColor) 읽기 (네이티브 Win32 API 사용)
 fn query_windows_theme() -> WindowsTheme {
     let mut theme = WindowsTheme::default();
@@ -1382,6 +1417,26 @@ fn query_windows_theme() -> WindowsTheme {
     }
 
     theme
+}
+
+#[cfg(target_os = "macos")]
+fn query_windows_theme() -> WindowsTheme {
+    let out = Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output();
+    let is_dark = out
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "Dark")
+        .unwrap_or(false);
+    WindowsTheme {
+        is_light: !is_dark,
+        accent_hex: "#007aff".to_string(),
+        accent_rgb: "0, 122, 255".to_string(),
+    }
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn query_windows_theme() -> WindowsTheme {
+    WindowsTheme::default()
 }
 
 fn spawn_theme_watcher(theme_state: Arc<Mutex<WindowsTheme>>) {
@@ -1453,6 +1508,7 @@ struct ProcessConnection {
     is_game_port: bool,
 }
 
+#[cfg(target_os = "windows")]
 /// 활성 게임 프로세스가 접속 중인 외부 서버 IP/포트 목록 조회 (GetExtendedTcpTable)
 fn get_process_tcp_endpoints(target_pid: u32) -> Vec<ProcessConnection> {
     if target_pid == 0 {
@@ -1534,6 +1590,12 @@ fn get_process_tcp_endpoints(target_pid: u32) -> Vec<ProcessConnection> {
     results
 }
 
+#[cfg(not(target_os = "windows"))]
+fn get_process_tcp_endpoints(_target_pid: u32) -> Vec<ProcessConnection> {
+    Vec::new()
+}
+
+#[cfg(target_os = "windows")]
 /// Windows ICMP API를 활용한 순수 왕복 지연시간(RTT) 측정
 fn icmp_ping(ip: std::net::Ipv4Addr, timeout_ms: u32) -> Option<f64> {
     unsafe {
@@ -1572,6 +1634,11 @@ fn icmp_ping(ip: std::net::Ipv4Addr, timeout_ms: u32) -> Option<f64> {
         IcmpCloseHandle(handle);
         res
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn icmp_ping(_ip: std::net::Ipv4Addr, _timeout_ms: u32) -> Option<f64> {
+    None
 }
 
 /// 게임 서버 원격 IP 핑 측정 (ICMP 우선, 방화벽 차단 시 TCP Connect RTT 측정)
@@ -1777,7 +1844,8 @@ impl Default for GpuMetrics {
     }
 }
 
-/// 백그라운드에서 nvidia-smi 스트림을 열어 매초 오버헤드 없이 GPU 정보를 갱신
+/// 백그라운드에서 GPU 정보를 주기적으로 갱신
+#[cfg(target_os = "windows")]
 fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
     thread::spawn(move || loop {
         let child = Command::new("nvidia-smi")
@@ -1787,7 +1855,7 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
                 "-l",
                 "1",
             ])
-            .creation_flags(CREATE_NO_WINDOW)
+            .no_window()
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn();
@@ -1827,6 +1895,33 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
         }
         thread::sleep(Duration::from_secs(2));
     });
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
+    thread::spawn(move || {
+        let mut sys = sysinfo::System::new_all();
+        loop {
+            sys.refresh_memory();
+            let total_ram_mb = (sys.total_memory() / (1024 * 1024)) as f32;
+            let used_ram_mb = (sys.used_memory() / (1024 * 1024)) as f32;
+            if let Ok(mut g) = gpu_state.lock() {
+                g.name = "Apple Silicon GPU (Unified)".to_string();
+                g.usage_pct = 0.0;
+                g.vram_used_mb = used_ram_mb;
+                g.vram_total_mb = total_ram_mb;
+                g.temp_c = 0.0;
+                g.power_w = 0.0;
+                g.clock_mhz = 0;
+            }
+            thread::sleep(Duration::from_secs(2));
+        }
+    });
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
+    let _ = gpu_state;
 }
 
 /// 대규모 공식 게임 실행 파일 목록 (국내외 인기 PC 게임 120+ 종 자동 감지)
@@ -3035,8 +3130,16 @@ impl Default for WindowBounds {
 }
 
 fn persistent_config_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
     if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
         let dir = std::path::PathBuf::from(local_app_data).join("CoreFlow");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            return dir;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let dir = std::path::PathBuf::from(home).join("Library/Application Support/CoreFlow");
         if std::fs::create_dir_all(&dir).is_ok() {
             return dir;
         }
@@ -3227,6 +3330,7 @@ fn custom_avatar_path() -> std::path::PathBuf {
     persistent_config_path("rustcord_custom_avatar.img")
 }
 
+#[cfg(target_os = "windows")]
 fn query_windows_user_name() -> String {
     if let Some(name) = reg_find_subkey_string(
         HKEY_LOCAL_MACHINE,
@@ -3242,6 +3346,16 @@ fn query_windows_user_name() -> String {
         .unwrap_or_else(|| "Windows User".to_string())
 }
 
+#[cfg(not(target_os = "windows"))]
+fn query_windows_user_name() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "Mac User".to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn query_startup_enabled() -> bool {
     reg_read_string(
         HKEY_CURRENT_USER,
@@ -3251,6 +3365,23 @@ fn query_startup_enabled() -> bool {
     .is_some()
 }
 
+#[cfg(target_os = "macos")]
+fn query_startup_enabled() -> bool {
+    if let Some(home) = std::env::var_os("HOME") {
+        let plist_path = std::path::PathBuf::from(home)
+            .join("Library/LaunchAgents/com.coreflow.app.plist");
+        plist_path.exists()
+    } else {
+        false
+    }
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn query_startup_enabled() -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
 fn set_startup_enabled(enable: bool) -> bool {
     // 이전 이름(RustCordStudio) 레지스트리가 남아있다면 정리
     let _ = reg_delete_value(
@@ -3280,6 +3411,45 @@ fn set_startup_enabled(enable: bool) -> bool {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn set_startup_enabled(enable: bool) -> bool {
+    let Some(home) = std::env::var_os("HOME") else { return false; };
+    let plist_path = std::path::PathBuf::from(home)
+        .join("Library/LaunchAgents/com.coreflow.app.plist");
+    if enable {
+        let Ok(exe) = std::env::current_exe() else { return false; };
+        let plist_content = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.coreflow.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>"#,
+            exe.to_string_lossy()
+        );
+        if let Some(parent) = plist_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&plist_path, plist_content).is_ok()
+    } else {
+        let _ = std::fs::remove_file(&plist_path);
+        true
+    }
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn set_startup_enabled(_enable: bool) -> bool {
+    true
+}
+
 fn is_valid_image_bytes(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x89, b'P', b'N', b'G'])
         || bytes.starts_with(&[0xFF, 0xD8, 0xFF])
@@ -3305,6 +3475,7 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
 }
 
 /// Windows .accountpicture-ms 바이너리 내부에서 가장 큰 JPEG 이미지를 추출
+#[cfg(target_os = "windows")]
 fn extract_jpeg_from_accountpicture(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut best: Option<&[u8]> = None;
     let mut i = 0usize;
@@ -3344,15 +3515,68 @@ fn load_windows_avatar_bytes() -> (Vec<u8>, &'static str) {
         }
     }
 
-    // 2. Windows 레지스트리 AccountPicture\Users 에서 Image448 / Image192 / Image96 경로 탐색 (네이티브 Win32 API)
-    for key_name in ["Image448", "Image192", "Image96", "Image1080", "Image64"] {
-        if let Some(img_path) = reg_find_subkey_string(
-            HKEY_LOCAL_MACHINE,
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\AccountPicture\Users",
-            key_name,
-        ) {
-            if let Ok(bytes) = std::fs::read(&img_path) {
-                if bytes.len() > 64 && is_valid_image_bytes(&bytes) {
+    #[cfg(target_os = "windows")]
+    {
+        // 2. Windows 레지스트리 AccountPicture\Users 에서 Image448 / Image192 / Image96 경로 탐색 (네이티브 Win32 API)
+        for key_name in ["Image448", "Image192", "Image96", "Image1080", "Image64"] {
+            if let Some(img_path) = reg_find_subkey_string(
+                HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\AccountPicture\Users",
+                key_name,
+            ) {
+                if let Ok(bytes) = std::fs::read(&img_path) {
+                    if bytes.len() > 64 && is_valid_image_bytes(&bytes) {
+                        let mime = detect_image_mime(&bytes);
+                        return (bytes, mime);
+                    }
+                }
+            }
+        }
+
+        // 3. %APPDATA%\Microsoft\Windows\AccountPictures 폴더에서 이미지 또는 .accountpicture-ms 추출
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let dir = std::path::PathBuf::from(appdata).join(r"Microsoft\Windows\AccountPictures");
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    let ext = p
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    if let Ok(bytes) = std::fs::read(&p) {
+                        if ext == "accountpicture-ms" {
+                            if let Some(jpg) = extract_jpeg_from_accountpicture(&bytes) {
+                                return (jpg, "image/jpeg");
+                            }
+                        } else if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp") && bytes.len() > 64 {
+                            let mime = detect_image_mime(&bytes);
+                            return (bytes, mime);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. %TEMP%\{USERNAME}.bmp 또는 C:\ProgramData\Microsoft\User Account Pictures 기본 프로필 사진 확인
+        if let Ok(username) = std::env::var("USERNAME") {
+            let temp_bmp = std::env::temp_dir().join(format!("{username}.bmp"));
+            if let Ok(bytes) = std::fs::read(temp_bmp) {
+                if bytes.len() > 64 {
+                    let mime = detect_image_mime(&bytes);
+                    return (bytes, mime);
+                }
+            }
+        }
+
+        for default_win_pic in [
+            r"C:\ProgramData\Microsoft\User Account Pictures\user-192.png",
+            r"C:\ProgramData\Microsoft\User Account Pictures\user.png",
+            r"C:\ProgramData\Microsoft\User Account Pictures\user-48.png",
+            r"C:\ProgramData\Microsoft\User Account Pictures\user.bmp",
+        ] {
+            if let Ok(bytes) = std::fs::read(default_win_pic) {
+                if bytes.len() > 64 {
                     let mime = detect_image_mime(&bytes);
                     return (bytes, mime);
                 }
@@ -3360,57 +3584,7 @@ fn load_windows_avatar_bytes() -> (Vec<u8>, &'static str) {
         }
     }
 
-    // 3. %APPDATA%\Microsoft\Windows\AccountPictures 폴더에서 이미지 또는 .accountpicture-ms 추출
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let dir = std::path::PathBuf::from(appdata).join(r"Microsoft\Windows\AccountPictures");
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                let ext = p
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                if let Ok(bytes) = std::fs::read(&p) {
-                    if ext == "accountpicture-ms" {
-                        if let Some(jpg) = extract_jpeg_from_accountpicture(&bytes) {
-                            return (jpg, "image/jpeg");
-                        }
-                    } else if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp") && bytes.len() > 64 {
-                        let mime = detect_image_mime(&bytes);
-                        return (bytes, mime);
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. %TEMP%\{USERNAME}.bmp 또는 C:\ProgramData\Microsoft\User Account Pictures 기본 프로필 사진 확인
-    if let Ok(username) = std::env::var("USERNAME") {
-        let temp_bmp = std::env::temp_dir().join(format!("{username}.bmp"));
-        if let Ok(bytes) = std::fs::read(temp_bmp) {
-            if bytes.len() > 64 {
-                let mime = detect_image_mime(&bytes);
-                return (bytes, mime);
-            }
-        }
-    }
-
-    for default_win_pic in [
-        r"C:\ProgramData\Microsoft\User Account Pictures\user-192.png",
-        r"C:\ProgramData\Microsoft\User Account Pictures\user.png",
-        r"C:\ProgramData\Microsoft\User Account Pictures\user-48.png",
-        r"C:\ProgramData\Microsoft\User Account Pictures\user.bmp",
-    ] {
-        if let Ok(bytes) = std::fs::read(default_win_pic) {
-            if bytes.len() > 64 {
-                let mime = detect_image_mime(&bytes);
-                return (bytes, mime);
-            }
-        }
-    }
-
-    // 5. 파일이 없을 경우 깔끔한 Windows 11 스타일 기본 사용자 실루엣 SVG 제공
+    // 5. 파일이 없을 경우 깔끔한 기본 사용자 실루엣 SVG 제공
     let fallback_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="60" fill="#0078d4"/><circle cx="60" cy="44" r="22" fill="#ffffff"/><path d="M22 106c4-22 21-34 38-34s34 12 38 34" fill="#ffffff"/></svg>"##;
     (fallback_svg.as_bytes().to_vec(), "image/svg+xml")
 }
@@ -3585,11 +3759,6 @@ fn launch_desktop_window(url: &str) {
     let mini_state = load_minihud_state();
     let profile_dir = std::env::temp_dir().join("rustcord_app_profile");
 
-    let edge_paths = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ];
-
     let (win_w, win_h, win_x, win_y, has_pos) = if mini_state.is_mini {
         let w = if mini_state.mini_w >= 220 { mini_state.mini_w } else if mini_state.wide { 760 } else { 450 };
         let h = if mini_state.mini_h >= 100 { mini_state.mini_h } else if mini_state.wide { 168 } else { 265 };
@@ -3605,29 +3774,71 @@ fn launch_desktop_window(url: &str) {
         url.to_string()
     };
 
-    for path in edge_paths {
-        if std::path::Path::new(path).exists() {
-            let mut cmd = Command::new(path);
-            cmd.arg(format!("--app={launch_url}"))
-                .arg(format!("--user-data-dir={}", profile_dir.display()))
-                .arg(format!("--window-size={win_w},{win_h}"))
-                .arg("--new-window")
-                // 최소화/백그라운드 상태에서도 타이머·렌더러가 멈추지 않도록 절전(스로틀링) 비활성화
-                .arg("--disable-background-timer-throttling")
-                .arg("--disable-renderer-backgrounding")
-                .arg("--disable-backgrounding-occluded-windows")
-                .arg("--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion");
+    #[cfg(target_os = "windows")]
+    {
+        let edge_paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ];
 
-            if has_pos {
-                cmd.arg(format!("--window-position={win_x},{win_y}"));
+        for path in edge_paths {
+            if std::path::Path::new(path).exists() {
+                let mut cmd = Command::new(path);
+                cmd.arg(format!("--app={launch_url}"))
+                    .arg(format!("--user-data-dir={}", profile_dir.display()))
+                    .arg(format!("--window-size={win_w},{win_h}"))
+                    .arg("--new-window")
+                    // 최소화/백그라운드 상태에서도 타이머·렌더러가 멈추지 않도록 절전(스로틀링) 비활성화
+                    .arg("--disable-background-timer-throttling")
+                    .arg("--disable-renderer-backgrounding")
+                    .arg("--disable-backgrounding-occluded-windows")
+                    .arg("--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion");
+
+                if has_pos {
+                    cmd.arg(format!("--window-position={win_x},{win_y}"));
+                }
+
+                let _ = cmd.spawn();
+                return;
             }
-
-            let _ = cmd.spawn();
-            return;
         }
+
+        let _ = Command::new("explorer.exe").arg(&launch_url).spawn();
     }
 
-    let _ = Command::new("explorer.exe").arg(&launch_url).spawn();
+    #[cfg(target_os = "macos")]
+    {
+        let mac_browsers = [
+            "/Applications/Google Chrome.app",
+            "/Applications/Microsoft Edge.app",
+            "/Applications/Brave Browser.app",
+            "/Applications/Arc.app",
+        ];
+        for app in mac_browsers {
+            if std::path::Path::new(app).exists() {
+                let _ = Command::new("open")
+                    .args([
+                        "-na",
+                        app,
+                        "--args",
+                        &format!("--app={launch_url}"),
+                        &format!("--user-data-dir={}", profile_dir.display()),
+                        &format!("--window-size={win_w},{win_h}"),
+                        "--new-window",
+                    ])
+                    .spawn();
+                return;
+            }
+        }
+        let _ = Command::new("open").arg(&launch_url).spawn();
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        let _ = Command::new("xdg-open").arg(&launch_url).spawn();
+    }
 }
 
 /// 실행된 CoreFlow 앱 창의 타이틀바 및 작업 표시줄 아이콘을 내장 리소스 아이콘(ID 1)으로 즉시 동기화
@@ -3871,7 +4082,13 @@ fn read_full_http_body(stream: &mut TcpStream, initial_buf: &[u8]) -> Vec<u8> {
 }
 
 fn get_logs_dir() -> std::path::PathBuf {
-    let base = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let dir = std::path::PathBuf::from(home).join("Library/Logs/CoreFlow");
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
+    let base = persistent_config_dir();
     let logs = base.join("logs");
     let _ = std::fs::create_dir_all(&logs);
     logs
@@ -4424,10 +4641,17 @@ fn handle_client(
             .map(|v| url_decode(&v))
             .unwrap_or_default();
         if ext_url.starts_with("https://github.com/neverloselkb/coreFlow") {
+            #[cfg(target_os = "windows")]
             let _ = Command::new("cmd")
                 .args(["/C", "start", "", &ext_url])
-                .creation_flags(CREATE_NO_WINDOW)
+                .no_window()
                 .spawn();
+
+            #[cfg(target_os = "macos")]
+            let _ = Command::new("open").arg(&ext_url).spawn();
+
+            #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+            let _ = Command::new("xdg-open").arg(&ext_url).spawn();
         }
         let body = r#"{"ok":true}"#;
         let resp = format!(
@@ -4436,6 +4660,41 @@ fn handle_client(
             body
         );
         let _ = stream.write_all(resp.as_bytes());
+    } else if first_line.starts_with("POST /api/restart_app") {
+        if let Ok(guard) = state.lock() {
+            save_game_sessions(&guard.game_sessions);
+        }
+        stop_fps_etw_session();
+        let body = r#"{"ok":true}"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(200));
+            if std::env::var("COREFLOW_SUPERVISED").is_err() {
+                if let Ok(exe) = std::env::current_exe() {
+                    #[cfg(target_os = "windows")]
+                    let _ = Command::new("cmd")
+                        .args(["/C", "start", "", &exe.to_string_lossy()])
+                        .no_window()
+                        .spawn();
+
+                    #[cfg(target_os = "macos")]
+                    let _ = Command::new("open").arg(&exe).spawn();
+
+                    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+                    let _ = Command::new(&exe).spawn();
+                }
+                std::process::exit(0);
+            } else {
+                std::process::exit(42);
+            }
+        });
+        return;
     } else if first_line.starts_with("POST /api/quit") || first_line.starts_with("GET /api/quit") {
         if now_secs() < SUPPRESS_QUIT_UNTIL.load(Ordering::SeqCst) {
             // 자동 복구로 닫히는 이전 창의 종료 요청은 무시
@@ -4586,10 +4845,11 @@ fn run_supervisor() {
     loop {
         let mut cmd = Command::new(&exe);
         cmd.arg("--worker");
+        cmd.env("COREFLOW_SUPERVISED", "1");
         if is_restart {
             cmd.arg("--restarted");
         }
-        let child = cmd.creation_flags(CREATE_NO_WINDOW).spawn();
+        let child = cmd.no_window().spawn();
         let mut child = match child {
             Ok(c) => c,
             Err(_) => {
@@ -4602,6 +4862,14 @@ fn run_supervisor() {
         let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
         if code == 0 {
             return; // 사용자 정상 종료
+        }
+
+        if code == 42 {
+            append_watchdog_log("사용자 요청에 의한 프로그램 재시작 (exit code 42)");
+            restart_times.clear();
+            is_restart = true;
+            thread::sleep(Duration::from_millis(300));
+            continue;
         }
 
         append_watchdog_log(&format!(
@@ -8254,6 +8522,59 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- 통신 지연 / 오류 발생 시 안내 및 즉시 복구 오버레이 -->
+  <div id="error-fallback-overlay" class="hidden" style="position: fixed; inset: 0; z-index: 99999; background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.2s ease;">
+    <div style="background: var(--bg-card); border: 1.5px solid rgba(229, 57, 53, 0.45); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05); border-radius: 16px; max-width: 540px; width: 100%; overflow: hidden; display: flex; flex-direction: column;">
+      
+      <!-- 상단 헤더 -->
+      <div style="background: linear-gradient(135deg, rgba(229, 57, 53, 0.18) 0%, rgba(245, 159, 0, 0.12) 100%); border-bottom: 1px solid var(--border-subtle); padding: 20px 24px; display: flex; align-items: center; gap: 14px;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(229, 57, 53, 0.2); border: 1px solid rgba(229, 57, 53, 0.4); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;">
+          ⚠️
+        </div>
+        <div>
+          <div style="font-size: 17px; font-weight: 800; color: var(--text-normal); letter-spacing: -0.3px;">
+            모니터링 연결 지연 또는 오류 안내
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+            CoreFlow 시스템 백엔드 엔진과의 통신이 일시적으로 중단되었습니다
+          </div>
+        </div>
+      </div>
+
+      <!-- 본문 내용 -->
+      <div style="padding: 22px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-size: 13px; line-height: 1.6; color: var(--text-normal);">
+          윈도우 절전 모드 복귀, 게임/프로그램 전체화면 전환 중 순간 부하, 또는 백그라운드 엔진의 일시적인 응답 지연으로 발생할 수 있습니다.
+        </div>
+
+        <!-- 오류 세부 내용 -->
+        <div id="error-fallback-detail-box" style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; font-size: 11.5px; color: var(--text-muted); font-family: Consolas, monospace; word-break: break-all; max-height: 70px; overflow-y: auto;">
+          연결 상태: 응답 대기 시간 초과 (Connection Timeout)
+        </div>
+
+        <div style="background: rgba(var(--brand-rgb), 0.08); border-left: 3px solid var(--brand); padding: 10px 14px; border-radius: 6px; font-size: 12px; color: var(--text-normal); line-height: 1.5;">
+          💡 <strong>원클릭 재시작</strong>을 누르면 기존 설정(기록/테마/미니 HUD)은 안전하게 유지된 채 CoreFlow 엔진이 깨끗하게 다시 시작됩니다.
+        </div>
+      </div>
+
+      <!-- 하단 액션 버튼 영역 -->
+      <div style="background: var(--bg-secondary); border-top: 1px solid var(--border-subtle); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+        <button class="btn secondary" onclick="openHelpFromError()" style="font-size: 12px; padding: 8px 13px;">
+          ❓ 진단 가이드 보기
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-retry-conn" class="btn secondary" onclick="retryConnectionNow()" style="font-size: 12.5px; padding: 8px 14px;">
+            ⚡ 다시 연결 시도
+          </button>
+          <button id="btn-restart-app" class="btn" onclick="restartCoreFlowApp()" style="font-size: 12.5px; padding: 8px 16px; background-color: var(--brand); font-weight: 700;">
+            🔄 프로그램 즉시 재시작
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- 프로세스 우클릭 커스텀 컨텍스트 메뉴 -->
   <div id="ctx-menu" class="ctx-menu hidden">
     <div id="ctx-header" class="ctx-header">process.exe (PID: 0)</div>
@@ -8294,6 +8615,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         return;
       }
       hideContextMenu();
+      hideErrorFallbackOverlay();
       closeDetailView();
       closeRecordAnalysis();
       closeAlertSettings();
@@ -10060,6 +10382,63 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
+  function showErrorFallbackOverlay(msg) {
+    const box = document.getElementById('error-fallback-detail-box');
+    if (box && msg) {
+      box.textContent = msg;
+    }
+    const overlay = document.getElementById('error-fallback-overlay');
+    if (overlay) {
+      overlay.classList.remove('hidden');
+    }
+  }
+
+  function hideErrorFallbackOverlay() {
+    const overlay = document.getElementById('error-fallback-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+      overlay.classList.add('hidden');
+    }
+  }
+
+  async function retryConnectionNow() {
+    const btn = document.getElementById('btn-retry-conn');
+    if (btn) btn.textContent = '연결 시도 중...';
+    statsFailCount = 0;
+    try {
+      await fetchStats();
+      showToast('✅ 연결 복구에 성공했습니다.');
+    } catch (e) {
+      showToast('❌ 아직 연결되지 않았습니다. 프로그램 재시작을 권장합니다.');
+    } finally {
+      if (btn) btn.textContent = '⚡ 다시 연결 시도';
+    }
+  }
+
+  async function restartCoreFlowApp() {
+    const btn = document.getElementById('btn-restart-app');
+    const box = document.getElementById('error-fallback-detail-box');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '🔄 재시작 진행 중...';
+    }
+    if (box) {
+      box.textContent = 'CoreFlow 엔진을 다시 시작하고 있습니다. 잠시 후 창이 자동으로 갱신됩니다...';
+    }
+    try {
+      await apiFetch('/api/restart_app', { method: 'POST' });
+    } catch (e) {
+      console.warn('Restart trigger sent, waiting for reload...', e);
+    }
+    setTimeout(() => {
+      location.reload();
+    }, 2200);
+  }
+
+  function openHelpFromError() {
+    hideErrorFallbackOverlay();
+    openHelpModal();
+  }
+
   let statsInFlight = false;
   let statsInFlightSince = 0;
   let statsFailCount = 0;
@@ -10076,6 +10455,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       const d = await res.json();
       if (statsFailCount >= 3) showToast('✅ 모니터링 서버와 다시 연결되었습니다.');
       statsFailCount = 0;
+      hideErrorFallbackOverlay();
 
       // 0. Windows 테마, 사용자 이름, 시작프로그램 상태 적용
       const applied = applyWindowsTheme(d.theme);
@@ -10374,7 +10754,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     } catch (e) {
       console.error(e);
       statsFailCount++;
-      if (statsFailCount === 3) showToast('⏳ 모니터링 서버 응답 지연 — 자동 복구를 시도하는 중입니다...');
+      if (statsFailCount === 3) {
+        showToast('⏳ 모니터링 서버 응답 지연 — 자동 복구를 시도하는 중입니다...');
+      } else if (statsFailCount >= 5) {
+        const errMsg = (e && e.message) ? e.message : '응답 대기 시간 초과 (Connection Timeout)';
+        showErrorFallbackOverlay('모니터링 백엔드 서버 응답 지연 또는 통신 중단 (' + errMsg + ')');
+      }
     } finally {
       if (abortTimer) clearTimeout(abortTimer);
       statsInFlight = false;
