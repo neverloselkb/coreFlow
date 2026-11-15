@@ -41,24 +41,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Xcode SDK
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Apple Silicon and Intel Targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Add Intel Mac Cross Target
+        run: rustup target add x86_64-apple-darwin
 
-      - name: Build Apple Silicon (aarch64)
-        run: cargo build --release --target aarch64-apple-darwin --bin CoreFlow
+      - name: Build Apple Silicon (Native)
+        run: cargo build --release --bin CoreFlow --verbose
 
-      - name: Build Intel Mac (x86_64)
-        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow
+      - name: Build Intel Mac (Cross)
+        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow --verbose
 
       - name: Assemble Universal Binary & macOS App Bundle
         run: |
           mkdir -p CoreFlow.app/Contents/MacOS
           mkdir -p CoreFlow.app/Contents/Resources
           lipo -create \
-            target/aarch64-apple-darwin/release/CoreFlow \
+            target/release/CoreFlow \
             target/x86_64-apple-darwin/release/CoreFlow \
             -output CoreFlow.app/Contents/MacOS/CoreFlow
           chmod +x CoreFlow.app/Contents/MacOS/CoreFlow
@@ -102,6 +105,7 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [build-windows, build-macos]
+    if: always() && needs.build-windows.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -114,6 +118,7 @@ jobs:
 
       - name: Download macOS Artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: macos-binaries
           path: release-assets
