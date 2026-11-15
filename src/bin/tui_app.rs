@@ -434,24 +434,33 @@ unsafe extern "system" fn etw_present_record_callback(rec: *mut EventRecord) {
                 last_seen: Instant::now(),
             });
         if let Some(&last_ts) = entry.timestamps.back() {
-            if ts <= last_ts {
-                return;
+            if ts > last_ts {
+                entry.timestamps.push_back(ts);
+            } else if ts < last_ts {
+                // 멀티코어 환경에서 CPU 코어별 ETW 버퍼 플러시 순서 차이로 타임스탬프가 역전된 경우에도 유실 없이 정렬 삽입
+                if let Err(pos) = entry.timestamps.binary_search(&ts) {
+                    entry.timestamps.insert(pos, ts);
+                }
             }
+        } else {
+            entry.timestamps.push_back(ts);
         }
-        entry.timestamps.push_back(ts);
         entry.last_seen = Instant::now();
-        let cutoff = ts - keep_window;
-        while entry.timestamps.len() > 1500
-            || entry.timestamps.front().map_or(false, |&t| t < cutoff)
-        {
-            entry.timestamps.pop_front();
+        if let Some(&newest) = entry.timestamps.back() {
+            let cutoff = newest - keep_window;
+            while entry.timestamps.len() > 1500
+                || entry.timestamps.front().map_or(false, |&t| t < cutoff)
+            {
+                entry.timestamps.pop_front();
+            }
         }
     }
 }
 
 fn compute_swapchain_fps(hist: &SwapChainFrameHistory) -> Option<PidFpsMetrics> {
     let idle_secs = hist.last_seen.elapsed().as_secs_f64();
-    if idle_secs > 1.5 || hist.timestamps.len() < 2 {
+    // Windows ETW 실시간 버퍼는 flush_timer=1초 주기로 코어별 버퍼를 병합 전달하므로 최대 2.8초까지 활성 유지
+    if idle_secs > 2.8 || hist.timestamps.len() < 2 {
         return None;
     }
     let last_ts = *hist.timestamps.back()?;
@@ -470,20 +479,17 @@ fn compute_swapchain_fps(hist: &SwapChainFrameHistory) -> Option<PidFpsMetrics> 
 
     let first_ts_in_1s = hist.timestamps[first_in_1s_idx];
     // 최근 1초 윈도우 시작점 근처에서 연속 렌더링 중인지, 아니면 긴 멈춤 후 일부만 렌더링된 것인지 판별
-    let (interval_count, mut span_secs) = if first_in_1s_idx > 0
-        && (first_ts_in_1s - window_1s_start) > (ETW_TICKS_PER_SEC / 6)
+    let (interval_count, span_secs) = if first_in_1s_idx > 0
+        && (first_ts_in_1s - window_1s_start) > (ETW_TICKS_PER_SEC / 4)
     {
-        // 윈도우 초반에 166ms 이상의 공백이 있었던 경우 1초 전체 폭으로 계산
+        // 윈도우 초반에 250ms 이상의 긴 프레임 멈춤 공백이 있었던 경우 1초 전체 폭으로 계산
         (recent_len as f64, 1.0f64)
     } else {
-        // 연속 렌더링 중인 게임: 실제 첫 프레임과 마지막 프레임 사이의 정확한 QPC 간격으로 나눔 (NVIDIA Overlay / PresentMon 방식)
+        // 연속 렌더링 중인 게임: 실제 첫 프레임과 마지막 프레임 사이의 순수 하드웨어 QPC 간격으로 나눔 (ETW 버퍼 플러시 지연과 무관하게 100% 정확한 FPS 산출)
         let raw_span = (last_ts - first_ts_in_1s) as f64 / (ETW_TICKS_PER_SEC as f64);
         ((recent_len - 1) as f64, raw_span)
     };
 
-    if idle_secs > 0.18 {
-        span_secs += idle_secs;
-    }
     if span_secs < 0.05 {
         return None;
     }
@@ -580,7 +586,7 @@ fn spawn_fps_etw_monitor() {
                 (*props_ptr).wnode.flags = 0x00020000; // WNODE_FLAG_TRACED_GUID
                 (*props_ptr).wnode.client_context = 1; // QPC 고정밀 타임스탬프 캡처
                 (*props_ptr).log_file_mode = 0x00000100; // EVENT_TRACE_REAL_TIME_MODE
-                (*props_ptr).buffer_size = 64;
+                (*props_ptr).buffer_size = 16;
                 (*props_ptr).minimum_buffers = 4;
                 (*props_ptr).maximum_buffers = 32;
                 (*props_ptr).flush_timer = 1;
