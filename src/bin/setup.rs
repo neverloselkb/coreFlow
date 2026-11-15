@@ -735,6 +735,14 @@ fn perform_install(
         steps.push("Windows 시작 시 자동 실행 등록 완료".to_string());
     }
 
+    // 9.5. 하드웨어 DXGI/D3D9 ETW 실시간 FPS 측정을 위한 Performance Log Users 그룹(S-1-5-32-559) 권한 부여
+    if let Ok(user) = env::var("USERNAME") {
+        let _ = Command::new("net")
+            .args(["localgroup", "*S-1-5-32-559", &user, "/add"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+
     // 10. 설치 완료 후 바로 실행
     if opt_launch {
         let _ = Command::new(&exe_path)

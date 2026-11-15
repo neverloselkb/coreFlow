@@ -215,6 +215,438 @@ extern "system" {
         lpftLastWriteTime: *mut u64,
     ) -> i32;
     fn RegCloseKey(hKey: isize) -> i32;
+    fn StartTraceW(
+        trace_handle: *mut u64,
+        instance_name: *const u16,
+        properties: *mut EventTraceProperties,
+    ) -> u32;
+    fn ControlTraceW(
+        trace_handle: u64,
+        instance_name: *const u16,
+        properties: *mut EventTraceProperties,
+        control_code: u32,
+    ) -> u32;
+    fn EnableTraceEx2(
+        trace_handle: u64,
+        provider_id: *const EtwGuid,
+        control_code: u32,
+        level: u8,
+        match_any_keyword: u64,
+        match_all_keyword: u64,
+        timeout: u32,
+        enable_parameters: *const std::ffi::c_void,
+    ) -> u32;
+    fn OpenTraceW(logfile: *mut EventTraceLogfileW) -> u64;
+    fn ProcessTrace(
+        handle_array: *const u64,
+        handle_count: u32,
+        start_time: *const i64,
+        end_time: *const i64,
+    ) -> u32;
+    fn CloseTrace(trace_handle: u64) -> u32;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct EtwGuid {
+    data1: u32,
+    data2: u16,
+    data3: u16,
+    data4: [u8; 8],
+}
+
+// Microsoft-Windows-DXGI: {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9}
+const DXGI_PROVIDER_GUID: EtwGuid = EtwGuid {
+    data1: 0xCA11C036,
+    data2: 0x0102,
+    data3: 0x4A2D,
+    data4: [0xA6, 0xAD, 0xF0, 0x3C, 0xFE, 0xD5, 0xD3, 0xC9],
+};
+
+// Microsoft-Windows-D3D9: {783ACA0A-790E-4D7F-8451-AA850511C6B9}
+const D3D9_PROVIDER_GUID: EtwGuid = EtwGuid {
+    data1: 0x783ACA0A,
+    data2: 0x790E,
+    data3: 0x4D7F,
+    data4: [0x84, 0x51, 0xAA, 0x85, 0x05, 0x11, 0xC6, 0xB9],
+};
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct WnodeHeader {
+    buffer_size: u32,
+    provider_id: u32,
+    historical_context: u64,
+    time_stamp: i64,
+    guid: EtwGuid,
+    client_context: u32,
+    flags: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EventTraceProperties {
+    wnode: WnodeHeader,
+    buffer_size: u32,
+    minimum_buffers: u32,
+    maximum_buffers: u32,
+    maximum_file_size: u32,
+    log_file_mode: u32,
+    flush_timer: u32,
+    enable_flags: u32,
+    age_limit: i32,
+    number_of_buffers: u32,
+    free_buffers: u32,
+    events_lost: u32,
+    buffers_written: u32,
+    log_buffers_lost: u32,
+    real_time_buffers_lost: u32,
+    logger_thread_id: usize,
+    log_file_name_offset: u32,
+    logger_name_offset: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EventDescriptor {
+    id: u16,
+    version: u8,
+    channel: u8,
+    level: u8,
+    opcode: u8,
+    task: u16,
+    keyword: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EventHeader {
+    size: u16,
+    header_type: u16,
+    flags: u16,
+    event_property: u16,
+    thread_id: u32,
+    process_id: u32,
+    time_stamp: i64,
+    provider_id: EtwGuid,
+    event_descriptor: EventDescriptor,
+    processor_time: u64,
+    activity_id: EtwGuid,
+}
+
+#[repr(C)]
+struct EventRecord {
+    event_header: EventHeader,
+    buffer_context: u32,
+    extended_data_count: u16,
+    user_data_length: u16,
+    extended_data: usize,
+    user_data: *const u8,
+    user_context: *mut std::ffi::c_void,
+}
+
+#[repr(C)]
+struct EventTraceLogfileW {
+    log_file_name: *mut u16,
+    logger_name: *mut u16,
+    current_time: i64,
+    buffers_read: u32,
+    process_trace_mode: u32,
+    current_event: [u8; 88],
+    logfile_header: [u8; 280],
+    buffer_callback: usize,
+    buffer_size: u32,
+    filled: u32,
+    events_lost: u32,
+    _pad1: u32,
+    event_record_callback: Option<unsafe extern "system" fn(*mut EventRecord)>,
+    is_kernel_trace: u32,
+    _pad2: u32,
+    context: *mut std::ffi::c_void,
+}
+
+const ETW_TICKS_PER_SEC: i64 = 10_000_000; // 100ns FILETIME 정규화 단위 (QPC 해상도 캡처)
+const ETW_FPS_SESSION_NAME: &str = "CoreFlowFpsEtwSession";
+
+struct SwapChainFrameHistory {
+    timestamps: std::collections::VecDeque<i64>,
+    last_seen: Instant,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PidFpsMetrics {
+    fps: f32,
+    frame_ms: f32,
+    low_1pct_fps: f32,
+    frame_count_1s: usize,
+}
+
+static ETW_FPS_MAP: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<(u32, u64), SwapChainFrameHistory>>,
+> = std::sync::OnceLock::new();
+
+fn get_etw_fps_map() -> &'static Mutex<std::collections::HashMap<(u32, u64), SwapChainFrameHistory>>
+{
+    ETW_FPS_MAP.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+unsafe extern "system" fn etw_present_record_callback(rec: *mut EventRecord) {
+    if rec.is_null() {
+        return;
+    }
+    let hdr = &(*rec).event_header;
+    // DXGI Present_Start (Event ID 42, Opcode 1) 또는 D3D9 Present_Start (Event ID 1)
+    let is_dxgi = hdr.provider_id == DXGI_PROVIDER_GUID && hdr.event_descriptor.id == 42;
+    let is_d3d9 = hdr.provider_id == D3D9_PROVIDER_GUID && hdr.event_descriptor.id == 1;
+    if !is_dxgi && !is_d3d9 {
+        return;
+    }
+
+    let mut swapchain = 0u64;
+    if is_dxgi {
+        if (*rec).user_data_length >= 12 && !(*rec).user_data.is_null() {
+            swapchain = std::ptr::read_unaligned((*rec).user_data as *const u64);
+            let flags = std::ptr::read_unaligned((*rec).user_data.add(8) as *const u32);
+            // DXGI_PRESENT_TEST (0x00000001) 호출은 실제 화면 출력이 아니므로 제외
+            if (flags & 1) != 0 {
+                return;
+            }
+        }
+    } else if is_d3d9 && (*rec).user_data_length >= 8 && !(*rec).user_data.is_null() {
+        swapchain = std::ptr::read_unaligned((*rec).user_data as *const u64);
+    }
+
+    let pid = hdr.process_id;
+    if pid <= 4 {
+        return;
+    }
+    let ts = hdr.time_stamp;
+    let keep_window = ETW_TICKS_PER_SEC * 3; // 최근 3초 구간 프레임 타임스탬프 유지
+
+    if let Ok(mut map) = get_etw_fps_map().lock() {
+        if map.len() > 256 {
+            map.retain(|_, v| v.last_seen.elapsed() < Duration::from_secs(8));
+        }
+        let entry = map
+            .entry((pid, swapchain))
+            .or_insert_with(|| SwapChainFrameHistory {
+                timestamps: std::collections::VecDeque::with_capacity(512),
+                last_seen: Instant::now(),
+            });
+        if let Some(&last_ts) = entry.timestamps.back() {
+            if ts <= last_ts {
+                return;
+            }
+        }
+        entry.timestamps.push_back(ts);
+        entry.last_seen = Instant::now();
+        let cutoff = ts - keep_window;
+        while entry.timestamps.len() > 1500
+            || entry.timestamps.front().map_or(false, |&t| t < cutoff)
+        {
+            entry.timestamps.pop_front();
+        }
+    }
+}
+
+fn compute_swapchain_fps(hist: &SwapChainFrameHistory) -> Option<PidFpsMetrics> {
+    let idle_secs = hist.last_seen.elapsed().as_secs_f64();
+    if idle_secs > 1.5 || hist.timestamps.len() < 2 {
+        return None;
+    }
+    let last_ts = *hist.timestamps.back()?;
+    let window_1s_start = last_ts - ETW_TICKS_PER_SEC;
+
+    let first_in_1s_idx = hist
+        .timestamps
+        .iter()
+        .position(|&t| t >= window_1s_start)
+        .unwrap_or(0);
+
+    let recent_len = hist.timestamps.len() - first_in_1s_idx;
+    if recent_len < 2 {
+        return None;
+    }
+
+    let first_ts_in_1s = hist.timestamps[first_in_1s_idx];
+    // 최근 1초 윈도우 시작점 근처에서 연속 렌더링 중인지, 아니면 긴 멈춤 후 일부만 렌더링된 것인지 판별
+    let (interval_count, mut span_secs) = if first_in_1s_idx > 0
+        && (first_ts_in_1s - window_1s_start) > (ETW_TICKS_PER_SEC / 6)
+    {
+        // 윈도우 초반에 166ms 이상의 공백이 있었던 경우 1초 전체 폭으로 계산
+        (recent_len as f64, 1.0f64)
+    } else {
+        // 연속 렌더링 중인 게임: 실제 첫 프레임과 마지막 프레임 사이의 정확한 QPC 간격으로 나눔 (NVIDIA Overlay / PresentMon 방식)
+        let raw_span = (last_ts - first_ts_in_1s) as f64 / (ETW_TICKS_PER_SEC as f64);
+        ((recent_len - 1) as f64, raw_span)
+    };
+
+    if idle_secs > 0.18 {
+        span_secs += idle_secs;
+    }
+    if span_secs < 0.05 {
+        return None;
+    }
+
+    let fps = (interval_count / span_secs) as f32;
+    if fps < 1.0 || fps > 2000.0 {
+        return None;
+    }
+    let frame_ms = 1000.0 / fps;
+
+    // 최근 3초간의 개별 프레임 간격(dt_ms) 하위 1% 평균으로 정확한 1% Low FPS 산출
+    let mut deltas_ms: Vec<f64> = Vec::with_capacity(hist.timestamps.len());
+    for i in 1..hist.timestamps.len() {
+        let dt_ms = ((hist.timestamps[i] - hist.timestamps[i - 1]) as f64 * 1000.0)
+            / (ETW_TICKS_PER_SEC as f64);
+        if dt_ms > 0.1 && dt_ms < 500.0 {
+            deltas_ms.push(dt_ms);
+        }
+    }
+    let low_1pct_fps = if !deltas_ms.is_empty() {
+        deltas_ms.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        let slow_n = ((deltas_ms.len() as f64 * 0.01).ceil() as usize).max(1);
+        let avg_slow_ms = deltas_ms.iter().take(slow_n).sum::<f64>() / (slow_n as f64);
+        if avg_slow_ms > 0.0 {
+            ((1000.0 / avg_slow_ms) as f32).min(fps)
+        } else {
+            fps
+        }
+    } else {
+        fps
+    };
+
+    Some(PidFpsMetrics {
+        fps,
+        frame_ms,
+        low_1pct_fps,
+        frame_count_1s: recent_len,
+    })
+}
+
+/// 현재 DXGI / D3D9 SwapChain Present를 수행 중인 모든 프로세스의 실시간 하드웨어 FPS 맵 조회
+fn query_all_active_pid_fps() -> std::collections::HashMap<u32, PidFpsMetrics> {
+    let mut result = std::collections::HashMap::new();
+    let Ok(mut map) = get_etw_fps_map().lock() else {
+        return result;
+    };
+    map.retain(|_, v| v.last_seen.elapsed() < Duration::from_secs(5));
+    for (&(pid, _sc), hist) in map.iter() {
+        if let Some(metrics) = compute_swapchain_fps(hist) {
+            let replace = match result.get(&pid) {
+                None => true,
+                Some(prev) => metrics.frame_count_1s > prev.frame_count_1s,
+            };
+            if replace {
+                result.insert(pid, metrics);
+            }
+        }
+    }
+    result
+}
+
+fn stop_fps_etw_session() {
+    let session_name = to_wide(ETW_FPS_SESSION_NAME);
+    let total_size = std::mem::size_of::<EventTraceProperties>() + session_name.len() * 2 + 64;
+    let mut buf = vec![0u64; (total_size + 7) / 8];
+    let props_ptr = buf.as_mut_ptr() as *mut EventTraceProperties;
+    unsafe {
+        (*props_ptr).wnode.buffer_size = (buf.len() * 8) as u32;
+        (*props_ptr).logger_name_offset = std::mem::size_of::<EventTraceProperties>() as u32;
+        let _ = ControlTraceW(0, session_name.as_ptr(), props_ptr, 1);
+    }
+}
+
+/// NVIDIA 오버레이 / PresentMon과 동일한 Windows ETW (DXGI + D3D9 Present) 하드웨어 프레임 측정 스레드
+fn spawn_fps_etw_monitor() {
+    thread::spawn(|| {
+        let session_name = to_wide(ETW_FPS_SESSION_NAME);
+        let total_size = std::mem::size_of::<EventTraceProperties>() + session_name.len() * 2 + 64;
+        let mut tried_group_add = false;
+
+        loop {
+            let mut buf = vec![0u64; (total_size + 7) / 8];
+            let props_ptr = buf.as_mut_ptr() as *mut EventTraceProperties;
+
+            unsafe {
+                // 이전 잔여 세션 정리
+                (*props_ptr).wnode.buffer_size = (buf.len() * 8) as u32;
+                (*props_ptr).logger_name_offset =
+                    std::mem::size_of::<EventTraceProperties>() as u32;
+                let _ = ControlTraceW(0, session_name.as_ptr(), props_ptr, 1);
+
+                std::ptr::write_bytes(buf.as_mut_ptr(), 0, buf.len());
+                (*props_ptr).wnode.buffer_size = (buf.len() * 8) as u32;
+                (*props_ptr).wnode.flags = 0x00020000; // WNODE_FLAG_TRACED_GUID
+                (*props_ptr).wnode.client_context = 1; // QPC 고정밀 타임스탬프 캡처
+                (*props_ptr).log_file_mode = 0x00000100; // EVENT_TRACE_REAL_TIME_MODE
+                (*props_ptr).buffer_size = 64;
+                (*props_ptr).minimum_buffers = 4;
+                (*props_ptr).maximum_buffers = 32;
+                (*props_ptr).flush_timer = 1;
+                (*props_ptr).logger_name_offset =
+                    std::mem::size_of::<EventTraceProperties>() as u32;
+
+                let mut session_handle: u64 = 0;
+                let status = StartTraceW(&mut session_handle, session_name.as_ptr(), props_ptr);
+                if status != 0 {
+                    // ERROR_ACCESS_DENIED (5)인 경우 Performance Log Users 그룹(S-1-5-32-559) 등록 1회 시도
+                    if status == 5 && !tried_group_add {
+                        tried_group_add = true;
+                        if let Ok(user) = std::env::var("USERNAME") {
+                            let _ = Command::new("net")
+                                .args(["localgroup", "*S-1-5-32-559", &user, "/add"])
+                                .creation_flags(CREATE_NO_WINDOW)
+                                .status();
+                        }
+                    }
+                    thread::sleep(Duration::from_secs(10));
+                    continue;
+                }
+
+                let _ = EnableTraceEx2(
+                    session_handle,
+                    &DXGI_PROVIDER_GUID,
+                    1,
+                    4,
+                    0,
+                    0,
+                    0,
+                    std::ptr::null(),
+                );
+                let _ = EnableTraceEx2(
+                    session_handle,
+                    &D3D9_PROVIDER_GUID,
+                    1,
+                    4,
+                    0,
+                    0,
+                    0,
+                    std::ptr::null(),
+                );
+
+                let mut logfile: EventTraceLogfileW = std::mem::MaybeUninit::zeroed().assume_init();
+                let mut sname_mut = session_name.clone();
+                logfile.logger_name = sname_mut.as_mut_ptr();
+                // PROCESS_TRACE_MODE_REAL_TIME (0x00000100) | PROCESS_TRACE_MODE_EVENT_RECORD (0x10000000)
+                logfile.process_trace_mode = 0x00000100 | 0x10000000;
+                logfile.event_record_callback = Some(etw_present_record_callback);
+
+                let trace_handle = OpenTraceW(&mut logfile);
+                if trace_handle == u64::MAX || trace_handle == 0xFFFFFFFF {
+                    let _ = ControlTraceW(session_handle, std::ptr::null(), props_ptr, 1);
+                    thread::sleep(Duration::from_secs(5));
+                    continue;
+                }
+
+                // ProcessTrace는 세션이 닫힐 때까지 블로킹하며 실시간 Present 이벤트를 수신
+                let _ = ProcessTrace(&trace_handle, 1, std::ptr::null(), std::ptr::null());
+                let _ = CloseTrace(trace_handle);
+                let _ = ControlTraceW(session_handle, std::ptr::null(), props_ptr, 1);
+            }
+            thread::sleep(Duration::from_secs(3));
+        }
+    });
 }
 
 fn to_wide(s: &str) -> Vec<u16> {
@@ -1827,7 +2259,7 @@ fn detect_game_from_process(
         }
     }
 
-    // 4. 게임 엔진 바이너리 패턴 (-Win64-Shipping, -Win32-Shipping)
+    // 4. 게임 엔진 바이너리 패턴 (-Win64-Shipping, -Win32-Shipping, UnityPlayer.dll 동반 실행 파일)
     if exe_lower.ends_with("-win64-shipping.exe") || exe_lower.ends_with("-win32-shipping.exe") {
         if exe_lower.contains("eosoverlayrenderer") || exe_lower.contains("crashreport") {
             return None;
@@ -1842,6 +2274,22 @@ fn detect_game_from_process(
             confidence: "engine",
             reason: "언리얼 엔진(Unreal Engine) 배포 바이너리 감지".to_string(),
         });
+    }
+
+    if let Some(path) = p_exe_path {
+        if let Some(parent) = path.parent() {
+            if parent.join("UnityPlayer.dll").exists() && !exe_lower.contains("unitycrashhandler") {
+                let clean = pname_raw
+                    .trim_end_matches(".exe")
+                    .trim_end_matches(".EXE")
+                    .replace(['_', '-'], " ");
+                return Some(GameMatch {
+                    name: clean,
+                    confidence: "engine",
+                    reason: "유니티 엔진(UnityPlayer.dll) 게임 바이너리 감지".to_string(),
+                });
+            }
+        }
     }
 
     None
@@ -2157,6 +2605,11 @@ impl SharedState {
 
             procs.sort_by(|a, b| b.memory().cmp(&a.memory()));
 
+            // 현재 DXGI / D3D9 Present(하드웨어 프레임 출력)가 활성화된 프로세스별 실제 FPS 맵 조회
+            let pid_fps_map = query_all_active_pid_fps();
+            let fg_info = get_foreground_window_info();
+            let fg_pid_now = fg_info.as_ref().map(|(pid, _)| *pid).unwrap_or(0);
+
             // 실행 중인 실제 게임 또는 사용자가 수동 지정한 타겟 프로세스 감지
             let mut detected_game_name = String::new();
             let mut detected_game_exe = String::new();
@@ -2166,28 +2619,78 @@ impl SharedState {
             let mut detected_game_run_secs = 0u64;
             let mut detected_game_start_ts = 0u64;
 
-            // 1. 사용자가 수동으로 타겟 프로세스를 지정한 경우
+            // 1. 사용자가 수동으로 타겟 프로세스를 지정한 경우 (동일 실행 파일이 여러 개면 실제 DXGI 렌더링 중인 PID 우선)
             if self.target_proc != "auto" && !self.target_proc.is_empty() {
+                let mut best_manual: Option<&sysinfo::Process> = None;
                 for p in &procs {
                     let pname_raw = p.name().to_string_lossy();
                     if pname_raw.eq_ignore_ascii_case(&self.target_proc) {
-                        let m = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games);
-                        detected_game_name = m.map(|g| g.name).unwrap_or_else(|| pname_raw.to_string());
-                        detected_game_exe = pname_raw.into_owned();
-                        detected_game_pid = p.pid().as_u32();
-                        detected_game_cpu = p.cpu_usage();
-                        detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                        detected_game_run_secs = p.run_time();
-                        detected_game_start_ts = p.start_time();
-                        break;
+                        let pid = p.pid().as_u32();
+                        let has_fps = pid_fps_map.get(&pid).map_or(false, |m| m.fps >= 1.0);
+                        if has_fps || best_manual.is_none() {
+                            best_manual = Some(p);
+                            if has_fps {
+                                break;
+                            }
+                        }
                     }
+                }
+                if let Some(p) = best_manual {
+                    let pname_raw = p.name().to_string_lossy();
+                    let m = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games);
+                    detected_game_name = m
+                        .map(|g| g.name)
+                        .unwrap_or_else(|| pname_raw.to_string());
+                    detected_game_exe = pname_raw.into_owned();
+                    detected_game_pid = p.pid().as_u32();
+                    detected_game_cpu = p.cpu_usage();
+                    detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                    detected_game_run_secs = p.run_time();
+                    detected_game_start_ts = p.start_time();
                 }
             }
 
-            // 2. "auto" 자동 감지 모드인 경우 (다단계 스마트 감지 엔진)
+            // 2. "auto" 자동 감지 모드인 경우 (듀얼 모니터 포커스 전환에 흔들리지 않는 다단계 스마트 감지 엔진)
             if detected_game_name.is_empty() && self.target_proc == "auto" {
-                // Step A: 이전에 감지되어 활성화된 게임이 아직 살아있는지 확인 (알트탭 / 백그라운드 세션 유지)
-                if self.active_game_pid > 0 {
+                // Step 1: 전체 프로세스 대상 공식 게임 DB / 영구 등록 게임 / Steam·Epic·Riot·배틀넷 경로 / 언리얼·유니티 엔진 매칭 최우선 탐색
+                // -> 다른 모니터의 브라우저나 다른 앱을 클릭해도 실제 실행 중인 게임을 항상 1순위로 유지하며,
+                //    런처 스텁보다 실제 DXGI/D3D9 3D 프레임을 렌더링 중인 게임 프로세스(PID)에 가점(+100)을 부여합니다.
+                let mut best_score = 0u32;
+                for p in &procs {
+                    let pname_raw = p.name().to_string_lossy();
+                    if let Some(m) = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games) {
+                        let pid = p.pid().as_u32();
+                        let mut score: u32 = match m.confidence {
+                            "custom" => 100,
+                            "known" => 95,
+                            "path" => 90,
+                            "engine" => 85,
+                            _ => 70,
+                        };
+                        if pid_fps_map.get(&pid).map_or(false, |f| f.fps >= 1.0) {
+                            score += 100;
+                        }
+                        if pid == fg_pid_now && pid > 0 {
+                            score += 25;
+                        }
+                        if pid == self.active_game_pid && pid > 0 {
+                            score += 15;
+                        }
+                        if score > best_score {
+                            best_score = score;
+                            detected_game_name = m.name;
+                            detected_game_exe = pname_raw.into_owned();
+                            detected_game_pid = pid;
+                            detected_game_cpu = p.cpu_usage();
+                            detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                            detected_game_run_secs = p.run_time();
+                            detected_game_start_ts = p.start_time();
+                        }
+                    }
+                }
+
+                // Step 2: 이전에 감지되어 활성화된 게임이 아직 살아있는지 확인 (알트탭 / 듀얼 모니터 다른 창 클릭 시 세션 고정)
+                if detected_game_name.is_empty() && self.active_game_pid > 0 {
                     let is_active_invalid = is_non_game_window_title(&self.active_game_name)
                         || is_blacklisted_system_process(&self.active_game_exe.to_lowercase())
                         || is_blacklisted_system_process(&self.active_game_name.to_lowercase());
@@ -2218,50 +2721,62 @@ impl SharedState {
                     }
                 }
 
-                // Step B: 현재 포그라운드(전면 활성) 창 검사 (게임 플레이 중인 실시간 창 최우선 감지)
+                // Step 3: 미등록 독립 실행형(Standalone) 게임 포그라운드 감지
+                // -> 일반 데스크톱 앱을 게임으로 오인하지 않도록 실제로 DXGI/D3D9 3D 프레임을 렌더링 중(>= 12 FPS)이고 메모리가 200MB를 넘는 경우에만 감지
                 if detected_game_name.is_empty() {
-                    if let Some((fg_pid, fg_title)) = get_foreground_window_info() {
+                    if let Some((fg_pid, fg_title)) = fg_info {
                         if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == fg_pid) {
                             let pname_raw = p.name().to_string_lossy();
                             let exe_lower = pname_raw.to_lowercase();
                             let is_fg_non_game = is_non_game_window_title(&fg_title);
-                            if !is_blacklisted_system_process(&exe_lower) && !is_fg_non_game {
-                                let m = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games);
-                                let is_game = m.is_some() || (p.memory() > 180 * 1024 * 1024 && !fg_title.is_empty() && !is_non_game_window_title(&fg_title));
-                                if is_game {
-                                    let friendly = if let Some(matched) = m {
-                                        matched.name
-                                    } else if !fg_title.is_empty() {
-                                        fg_title
-                                    } else {
-                                        pname_raw.to_string()
-                                    };
-                                    detected_game_name = friendly;
-                                    detected_game_exe = pname_raw.into_owned();
-                                    detected_game_pid = p.pid().as_u32();
-                                    detected_game_cpu = p.cpu_usage();
-                                    detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                                    detected_game_run_secs = p.run_time();
-                                    detected_game_start_ts = p.start_time();
-                                }
+                            let is_rendering_3d = pid_fps_map
+                                .get(&fg_pid)
+                                .map_or(false, |f| f.fps >= 12.0 && f.frame_count_1s >= 12);
+                            if !is_blacklisted_system_process(&exe_lower)
+                                && !is_fg_non_game
+                                && is_rendering_3d
+                                && p.memory() > 200 * 1024 * 1024
+                                && !fg_title.is_empty()
+                            {
+                                detected_game_name = fg_title;
+                                detected_game_exe = pname_raw.into_owned();
+                                detected_game_pid = p.pid().as_u32();
+                                detected_game_cpu = p.cpu_usage();
+                                detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                                detected_game_run_secs = p.run_time();
+                                detected_game_start_ts = p.start_time();
                             }
                         }
                     }
                 }
+            }
 
-                // Step C: 전체 실행 중인 프로세스 탐색 (공식 DB 매칭, Steam/Epic/Riot/배틀넷 등 설치 경로 매칭, 엔진 패턴)
-                if detected_game_name.is_empty() {
+            // 감지된 게임 프로세스의 실시간 하드웨어(DXGI/D3D9 ETW) FPS / 프레임타임 / 1% Low 산출
+            let mut detected_game_fps = 0.0f32;
+            let mut detected_game_frame_ms = 0.0f32;
+            let mut detected_game_low1_fps = 0.0f32;
+
+            if detected_game_pid > 0 {
+                if let Some(m) = pid_fps_map.get(&detected_game_pid) {
+                    detected_game_fps = m.fps;
+                    detected_game_frame_ms = m.frame_ms;
+                    detected_game_low1_fps = m.low_1pct_fps;
+                } else {
+                    // 부모 런처 프로세스가 잡힌 경우 동일 실행 파일명 또는 동일 게임명으로 매칭된 자식 렌더링 프로세스 탐색
                     for p in &procs {
-                        let pname_raw = p.name().to_string_lossy();
-                        if let Some(m) = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games) {
-                            detected_game_name = m.name;
-                            detected_game_exe = pname_raw.into_owned();
-                            detected_game_pid = p.pid().as_u32();
-                            detected_game_cpu = p.cpu_usage();
-                            detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                            detected_game_run_secs = p.run_time();
-                            detected_game_start_ts = p.start_time();
-                            break;
+                        let pid = p.pid().as_u32();
+                        if let Some(m) = pid_fps_map.get(&pid) {
+                            let pname = p.name().to_string_lossy();
+                            let same_exe = pname.eq_ignore_ascii_case(&detected_game_exe);
+                            let same_game = detect_game_from_process(&pname, p.exe(), &self.custom_games)
+                                .map_or(false, |gm| gm.name == detected_game_name);
+                            if same_exe || same_game {
+                                detected_game_fps = m.fps;
+                                detected_game_frame_ms = m.frame_ms;
+                                detected_game_low1_fps = m.low_1pct_fps;
+                                detected_game_pid = pid;
+                               break;
+                            }
                         }
                     }
                 }
@@ -2287,6 +2802,16 @@ impl SharedState {
             let now = now_secs();
             let mut active_session_id = String::new();
             let mut active_duration_secs = 0u64;
+            let session_sample_fps = if detected_game_fps > 0.0 {
+                detected_game_fps
+            } else {
+                0.0
+            };
+            let session_sample_low1 = if detected_game_low1_fps > 0.0 {
+                detected_game_low1_fps
+            } else {
+                session_sample_fps
+            };
 
             if !detected_game_name.is_empty() {
                 let est_start = if detected_game_start_ts > 0 && detected_game_start_ts <= now {
@@ -2314,19 +2839,14 @@ impl SharedState {
                     s.max_mem_mb = s.max_mem_mb.max(detected_game_mem_mb);
                     s.max_gpu_temp = s.max_gpu_temp.max(gpu_data.temp_c);
                     s.max_gpu_usage = s.max_gpu_usage.max(gpu_data.usage_pct);
-                    if self.client_fps > 0.0 {
+                    if session_sample_fps > 0.0 {
                         s.fps_samples = s.fps_samples.saturating_add(1);
                         let n = s.fps_samples as f32;
-                        s.avg_fps = ((s.avg_fps * (n - 1.0)) + self.client_fps) / n;
-                        let cur_low1 = if self.client_low1_fps > 0.0 {
-                            self.client_low1_fps
-                        } else {
-                            self.client_fps
-                        };
+                        s.avg_fps = ((s.avg_fps * (n - 1.0)) + session_sample_fps) / n;
                         s.low_1pct_fps = if s.low_1pct_fps <= 0.0 {
-                            cur_low1
+                            session_sample_low1
                         } else {
-                            s.low_1pct_fps * 0.85 + cur_low1 * 0.15
+                            s.low_1pct_fps * 0.85 + session_sample_low1 * 0.15
                         };
                     }
                     active_session_id = s.id.clone();
@@ -2335,16 +2855,8 @@ impl SharedState {
                     let id = format!("{}_{}", est_start, detected_game_pid);
                     active_session_id = id.clone();
                     active_duration_secs = calc_run;
-                    let init_fps = if self.client_fps > 0.0 {
-                        self.client_fps
-                    } else {
-                        0.0
-                    };
-                    let init_low1 = if self.client_low1_fps > 0.0 {
-                        self.client_low1_fps
-                    } else {
-                        init_fps
-                    };
+                    let init_fps = session_sample_fps;
+                    let init_low1 = session_sample_low1;
                     self.game_sessions.push(GameSessionRecord {
                         id,
                         game_name: detected_game_name.clone(),
@@ -2425,7 +2937,7 @@ impl SharedState {
                 .collect();
 
             self.cached_json = format!(
-                r#"{{"cpu":{:.1},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}"}},"game_logs":[{}],"processes":[{}]}}"#,
+                r#"{{"cpu":{:.1},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
                 global_cpu,
                 cpus.join(","),
                 total_mem,
@@ -2473,6 +2985,9 @@ impl SharedState {
                 detected_game_mem_mb,
                 active_duration_secs,
                 json_escape(&active_session_id),
+                detected_game_fps,
+                detected_game_frame_ms,
+                detected_game_low1_fps,
                 game_logs_json.join(","),
                 proc_json.join(",")
             );
@@ -3616,6 +4131,7 @@ fn handle_client(
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("GET /api/game_scan") {
         let (fg_pid, fg_title) = get_foreground_window_info().unwrap_or((0, String::new()));
+        let pid_fps_map = query_all_active_pid_fps();
         let resp_json = {
             let guard = state.lock().unwrap_or_else(|e| e.into_inner());
             
@@ -3648,15 +4164,22 @@ fn handle_client(
                 let is_fg = pid == fg_pid;
                 let cpu = p.cpu_usage();
                 let mem_mb = p.memory() as f64 / 1_048_576.0;
+                let live_fps = pid_fps_map.get(&pid).map(|m| m.fps).unwrap_or(0.0);
 
                 let m = detect_game_from_process(&pname_raw, p.exe(), &guard.custom_games);
                 if let Some(matched) = m {
-                    let score = match matched.confidence {
+                    let mut score = match matched.confidence {
                         "custom" => 100,
                         "known" => 95,
                         "path" => 90,
                         "engine" => 75,
                         _ => 60,
+                    };
+                    let reason = if live_fps >= 1.0 {
+                        score += 50;
+                        format!("{} • DXGI {:.0} FPS 렌더링 중", matched.reason, live_fps)
+                    } else {
+                        matched.reason
                     };
                     candidates.push(Candidate {
                         pid,
@@ -3664,10 +4187,28 @@ fn handle_client(
                         title: matched.name,
                         cpu,
                         mem_mb,
-                        reason: matched.reason,
+                        reason,
                         is_foreground: is_fg,
                         is_custom: matched.confidence == "custom",
                         score,
+                    });
+                } else if live_fps >= 10.0 && mem_mb > 120.0 {
+                    let pname_str = pname_raw.to_string();
+                    let title = if is_fg && !fg_title.is_empty() && !is_non_game_window_title(&fg_title) {
+                        fg_title.clone()
+                    } else {
+                        pname_str.clone()
+                    };
+                    candidates.push(Candidate {
+                        pid,
+                        name: pname_str,
+                        title,
+                        cpu,
+                        mem_mb,
+                        reason: format!("실시간 DirectX/DXGI 화면 렌더링 감지 ({live_fps:.0} FPS)"),
+                        is_foreground: is_fg,
+                        is_custom: false,
+                        score: 92,
                     });
                 } else if is_fg && !fg_title.is_empty() && !is_non_game_window_title(&fg_title) && (mem_mb > 150.0 || cpu > 0.5) {
                     candidates.push(Candidate {
@@ -3832,6 +4373,7 @@ fn handle_client(
         if let Ok(guard) = state.lock() {
             save_game_sessions(&guard.game_sessions);
         }
+        stop_fps_etw_session();
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
         let _ = stream.write_all(resp.as_bytes());
         let _ = stream.flush();
@@ -4002,6 +4544,7 @@ fn run_worker(restarted: bool) {
 
     let gpu_state = Arc::new(Mutex::new(GpuMetrics::default()));
     spawn_gpu_monitor(Arc::clone(&gpu_state));
+    spawn_fps_etw_monitor();
 
     let ping_state = Arc::new(Mutex::new(PingMetrics::default()));
     let active_game_target = Arc::new(Mutex::new((0u32, String::new())));
@@ -4086,6 +4629,7 @@ fn run_worker(restarted: bool) {
                         if let Ok(guard) = st.try_lock() {
                             save_game_sessions(&guard.game_sessions);
                         }
+                        stop_fps_etw_session();
                         std::process::exit(0);
                     }
                 }
@@ -7219,8 +7763,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임 설정에서 '최대 프레임 제한'을 무제한 대신 모니터 성능(예: 60 또는 144)에 맞춰 고정해 두면, 그래픽카드가 무리하지 않아 이 잔렉이 확 줄어듭니다.</span>
             </div>
             <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 게임을 분명 켰는데 '실행 중인 게임 없음'으로 나올 때</strong><br>
-              새로운 게임이나 인디 게임은 자동 목록에 없을 수 있습니다. 아래쪽 <strong>[🔍 게임 직접 찾기/관리]</strong> 버튼을 눌러 켜져 있는 게임을 한 번만 <strong>[⭐ 영구 등록]</strong>해 주시면, 다음부터는 켜자마자 자동으로 인식합니다!
+              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 보조 모니터의 다른 창을 클릭했을 때 프레임이 30~60으로 내려간다면?</strong><br>
+              CoreFlow는 NVIDIA 오버레이와 동일한 <strong>Windows 하드웨어 DXGI/D3D9 그래픽 출력 신호</strong>를 직접 측정합니다. 다른 모니터를 클릭했을 때 FPS가 내려간다면 게임 내 그래픽 옵션의 <strong>'백그라운드 최대 프레임 제한(비활성 창 FPS 제한)'</strong> 기능이 작동한 정상 현상입니다. 미등록 게임은 <strong>[🔍 게임 직접 찾기/관리]</strong>에서 <strong>[⭐ 영구 등록]</strong>해 두세요!
             </div>
           </div>
         </div>
@@ -9010,27 +9554,32 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (gpuTempHistory.length > 60) gpuTempHistory.shift();
       drawChart('gpu-canvas', gpuHistory, 100, '#e66700', 'rgba(230, 103, 0, 0.18)');
 
-      // 4. 게임 실시간 FPS 및 실행 시간(시:분:초) 업데이트
+      // 4. 게임 실시간 FPS (NVIDIA 오버레이/PresentMon 방식 DXGI·D3D9 ETW 하드웨어 측정) 및 실행 시간 업데이트
       const gm = d.game || {};
       latestGameLogs = d.game_logs || [];
       let activeFps = 0;
       let activeMs = 0.0;
+      let backendLow1 = 0;
       let targetLabel = '실행 중인 게임 없음';
       let isGameRunning = false;
       let activeRunSecs = 0;
 
       if (gm.active) {
         targetLabel = gm.name;
-        activeFps = compositorFps;
-        activeMs = compositorFrameMs;
+        const hwFps = Number(gm.fps || 0);
+        const hwMs = Number(gm.frame_ms || 0);
+        const hwLow1 = Number(gm.low_1pct_fps || 0);
+        activeFps = Math.round(hwFps);
+        activeMs = hwMs > 0 ? hwMs : (activeFps > 0 ? (1000.0 / activeFps) : 0.0);
+        backendLow1 = Math.round(hwLow1);
         isGameRunning = true;
         activeRunSecs = Number(gm.run_secs || 0);
       } else if (selectedTargetProc !== 'auto') {
         const found = (d.processes || []).find(p => p.name === selectedTargetProc);
         if (found) {
           targetLabel = found.name;
-          activeFps = compositorFps;
-          activeMs = compositorFrameMs;
+          activeFps = 0;
+          activeMs = 0.0;
           isGameRunning = true;
           activeRunSecs = Number(found.run_secs || 0);
         }
@@ -9045,7 +9594,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
       const validFps = fpsHistory.filter(v => v > 0);
       const sortedFps = [...validFps].sort((a, b) => a - b);
-      const low1Pct = isGameRunning ? (sortedFps.length > 0 ? sortedFps[0] : activeFps) : 0;
+      const low1Pct = isGameRunning
+        ? (backendLow1 > 0 ? backendLow1 : (sortedFps.length > 0 ? sortedFps[0] : activeFps))
+        : 0;
       const maxFpsScale = Math.max(120, ...validFps);
 
       document.getElementById('fps-value').textContent = isGameRunning ? `${activeFps} FPS` : `0 FPS`;
