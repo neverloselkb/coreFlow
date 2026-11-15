@@ -6,7 +6,7 @@
 
 [![Language](https://img.shields.io/badge/Language-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20(Universal)-0078D6?logo=apple)](https://github.com/neverloselkb/coreFlow/releases)
-[![Version](https://img.shields.io/badge/Release-v1.0.4-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.5-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
 [![License](https://img.shields.io/badge/License-MIT-green)](#)
 
 </div>
@@ -23,8 +23,9 @@
 
 ## ✨ 주요 기능
 
-### 1. 🍎 macOS 완전 지원 (v1.0.4 신규 추가)
+### 1. 🍎 macOS 완전 지원 및 원클릭 인앱 자동 업데이트
 - **Universal 바이너리 배포**: Apple Silicon(M1/M2/M3/M4)과 Intel Mac을 단일 바이너리로 지원하여 모든 Mac에서 네이티브 속도로 동작합니다.
+- **원클릭 인앱 자동 업데이트**: 업데이트 감지 시 클릭 한 번으로 최신 패키지 다운로드부터 앱 번들 교체 및 재시작까지 완전 무인 진행.
 - **Apple Silicon Unified Memory 연동**: 통합 메모리 구조에 맞춘 실시간 VRAM 점유량 및 GPU 연동 지표를 정확히 표시합니다.
 - **macOS 시스템 테마 자동 동기화**: OS의 다크 모드 / 라이트 모드 전환(`AppleInterfaceStyle`)을 실시간 감지하여 UI 테마를 동기화합니다.
 - **독립 데스크톱 웹앱 창 모드**: Chrome, Edge, Brave, Arc 등 설치된 브라우저 엔진을 감지하여 브라우저 주소창 없는 깔끔한 독립 윈도우로 구동됩니다.
