@@ -41,27 +41,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Xcode SDK
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Add Intel Mac Cross Target
-        run: rustup target add x86_64-apple-darwin
+      - name: Build Apple Silicon (aarch64)
+        run: cargo build --release --target aarch64-apple-darwin --bin CoreFlow
 
-      - name: Build Apple Silicon (Native)
-        run: cargo build --release --bin CoreFlow --verbose
-
-      - name: Build Intel Mac (Cross)
-        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow --verbose
+      - name: Build Intel Mac (x86_64)
+        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow
 
       - name: Assemble Universal Binary & macOS App Bundle
         run: |
           mkdir -p CoreFlow.app/Contents/MacOS
           mkdir -p CoreFlow.app/Contents/Resources
           lipo -create \
-            target/release/CoreFlow \
+            target/aarch64-apple-darwin/release/CoreFlow \
             target/x86_64-apple-darwin/release/CoreFlow \
             -output CoreFlow.app/Contents/MacOS/CoreFlow
           chmod +x CoreFlow.app/Contents/MacOS/CoreFlow
@@ -105,7 +101,6 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [build-windows, build-macos]
-    if: always() && needs.build-windows.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,7 +113,6 @@ jobs:
 
       - name: Download macOS Artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: macos-binaries
           path: release-assets
@@ -132,7 +126,31 @@ jobs:
             release-assets/CoreFlow_Setup.exe
             release-assets/CoreFlow-macOS-universal.zip
           tag_name: ${{ github.ref_name }}
-          name: CoreFlow ${{ github.ref_name }}
+          name: CoreFlow v1.0.4 — macOS Universal (Apple Silicon & Intel) 지원 및 멀티플랫폼 공식 릴리스
+          body: |
+            ## 🚀 CoreFlow v1.0.4 릴리스 노트
+
+            CoreFlow가 이제 **Windows**뿐만 아니라 **macOS (Apple Silicon M1/M2/M3/M4 & Intel Mac)** 환경을 공식 지원합니다!
+
+            ---
+
+            ### 🍎 macOS 완전 지원 (Universal Binary)
+            - **Universal 바이너리 배포**: Apple Silicon 및 Intel Mac 모두에서 네이티브 속도로 동작하는 `CoreFlow-macOS-universal.zip` (`CoreFlow.app`) 번들 제공
+            - **시스템 테마 자동 동기화**: macOS 시스템 다크/라이트 모드 설정(`AppleInterfaceStyle`) 실시간 연동
+            - **독립 웹앱 창 모드**: Google Chrome, Microsoft Edge, Brave, Arc 등 설치된 브라우저 엔진을 자동 탐색하여 군더더기 없는 독립 윈도우로 실행
+            - **하드웨어 및 시스템 자원 모니터링**: Apple Silicon Unified Memory 및 실시간 하드웨어 지표 연동
+            - **부팅 시 자동 실행 지원**: macOS 표준 `~/Library/LaunchAgents` 체계 기반 자동 시작 토글 지원
+
+            ---
+
+            ### 🪟 Windows 미니 HUD 복귀 및 화면 맞춤 설정 개선
+            - **미니 HUD 복귀 창 크기 오류 해결**: 미니 HUD 모드 상태에서 앱 재시작/종료 후 복귀 시 창 크기가 비정상적으로 유지되던 현상 완전 수정
+            - **화면 맞춤 설정 라디오 버튼 동기화**: 컴팩트 박스형 및 슬림 가로 바형 설정 전환 시 즉각적인 시각적 포커스 반영
+
+            ---
+
+            ### 📦 다운로드 안내
+            - **Windows**: `CoreFlow_Setup.exe` (간편 설치 관리자) 또는 `CoreFlow.exe` (포터블 실행 파일)
+            - **macOS**: `CoreFlow-macOS-universal.zip` 다운로드 후 압축 해제 ➔ `CoreFlow.app`을 `/Applications` 폴더로 이동하여 실행
           draft: false
           prerelease: false
-          generate_release_notes: true

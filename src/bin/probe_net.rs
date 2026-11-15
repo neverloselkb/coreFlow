@@ -1,3 +1,10 @@
+#[cfg(not(windows))]
+fn main() {
+    println!("probe_net is only supported on Windows.");
+}
+
+#[cfg(windows)]
+mod win_probe {
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::time::{Duration, Instant};
 use sysinfo::System;
@@ -226,4 +233,10 @@ fn main() {
             }
         }
     }
+}
+}
+
+#[cfg(windows)]
+fn main() {
+    win_probe::main();
 }

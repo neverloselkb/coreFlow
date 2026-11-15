@@ -45,11 +45,13 @@ const REG_DWORD: u32 = 4;
 const MAX_HTTP_BODY_BYTES: usize = 10 * 1024 * 1024; // 10 MB 상한 (OOM DoS 방지)
 const APP_ICON_ICO: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/coreflow.ico"));
 
+#[cfg(target_os = "windows")]
 #[link(name = "Kernel32")]
 extern "system" {
     fn GetModuleHandleW(lpModuleName: *const u16) -> isize;
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "User32")]
 extern "system" {
     fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> isize;
@@ -102,6 +104,7 @@ extern "system" {
     fn ReleaseDC(hWnd: isize, hDC: isize) -> i32;
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "Shell32")]
 extern "system" {
     fn ExtractIconExW(
@@ -113,6 +116,7 @@ extern "system" {
     ) -> u32;
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "Gdi32")]
 extern "system" {
     fn GetObjectW(h: isize, c: i32, pv: *mut std::ffi::c_void) -> i32;
@@ -166,6 +170,7 @@ struct BitmapInfoHeader {
 const WM_GETTEXT: u32 = 0x000D;
 const SMTO_ABORTIFHUNG: u32 = 0x0002;
 
+#[cfg(target_os = "windows")]
 #[link(name = "Iphlpapi")]
 extern "system" {
     fn GetExtendedTcpTable(
@@ -210,6 +215,7 @@ struct IcmpEchoReply {
     options: IpOptionInformation,
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "Advapi32")]
 extern "system" {
     fn RegOpenKeyExW(
