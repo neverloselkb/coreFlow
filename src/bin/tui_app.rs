@@ -32,6 +32,17 @@ extern "system" {
 #[link(name = "User32")]
 extern "system" {
     fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> isize;
+    fn FindWindowExW(
+        hWndParent: isize,
+        hWndChildAfter: isize,
+        lpszClass: *const u16,
+        lpszWindow: *const u16,
+    ) -> isize;
+    fn IsWindowVisible(hWnd: isize) -> i32;
+    fn IsZoomed(hWnd: isize) -> i32;
+    fn ShowWindow(hWnd: isize, nCmdShow: i32) -> i32;
+    fn GetWindowTextLengthW(hWnd: isize) -> i32;
+    fn GetWindowTextW(hWnd: isize, lpString: *mut u16, nMaxCount: i32) -> i32;
     fn LoadImageW(
         hInst: isize,
         name: *const u16,
@@ -3023,22 +3034,56 @@ impl Default for WindowBounds {
     }
 }
 
-fn bounds_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("rustcord_window_bounds.cfg");
+fn persistent_config_dir() -> std::path::PathBuf {
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let dir = std::path::PathBuf::from(local_app_data).join("CoreFlow");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            return dir;
         }
     }
-    std::env::temp_dir().join("rustcord_window_bounds.cfg")
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            return dir.to_path_buf();
+        }
+    }
+    std::env::temp_dir()
+}
+
+fn persistent_config_path(filename: &str) -> std::path::PathBuf {
+    let primary = persistent_config_dir().join(filename);
+    if !primary.exists() {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let legacy = dir.join(filename);
+                if legacy.exists() && legacy != primary {
+                    let _ = std::fs::copy(&legacy, &primary);
+                }
+            }
+        }
+    }
+    primary
+}
+
+fn write_persistent_config(filename: &str, bytes: &[u8]) -> bool {
+    let primary = persistent_config_path(filename);
+    let ok = std::fs::write(&primary, bytes).is_ok();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let legacy = dir.join(filename);
+            if legacy != primary {
+                let _ = std::fs::write(&legacy, bytes);
+            }
+        }
+    }
+    ok
+}
+
+fn bounds_file_path() -> std::path::PathBuf {
+    persistent_config_path("rustcord_window_bounds.cfg")
 }
 
 fn theme_pref_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("rustcord_theme_pref.cfg");
-        }
-    }
-    std::env::temp_dir().join("rustcord_theme_pref.cfg")
+    persistent_config_path("rustcord_theme_pref.cfg")
 }
 
 fn load_theme_pref() -> String {
@@ -3055,18 +3100,12 @@ fn load_theme_pref() -> String {
 fn save_theme_pref(mode: &str) {
     let m = mode.trim();
     if m == "light" || m == "dark" || m == "auto" {
-        let path = theme_pref_file_path();
-        let _ = std::fs::write(path, m);
+        let _ = write_persistent_config("rustcord_theme_pref.cfg", m.as_bytes());
     }
 }
 
 fn todos_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("coreflow_todos.json");
-        }
-    }
-    std::env::temp_dir().join("coreflow_todos.json")
+    persistent_config_path("coreflow_todos.json")
 }
 
 fn load_todos_json() -> String {
@@ -3087,19 +3126,14 @@ fn save_todos_json(raw: &[u8]) -> bool {
     if let Ok(text) = std::str::from_utf8(raw) {
         let trimmed = text.trim();
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            return std::fs::write(todos_file_path(), trimmed.as_bytes()).is_ok();
+            return write_persistent_config("coreflow_todos.json", trimmed.as_bytes());
         }
     }
     false
 }
 
 fn alerts_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("coreflow_alerts.json");
-        }
-    }
-    std::env::temp_dir().join("coreflow_alerts.json")
+    persistent_config_path("coreflow_alerts.json")
 }
 
 fn load_alerts_json() -> String {
@@ -3120,19 +3154,42 @@ fn save_alerts_json(raw: &[u8]) -> bool {
     if let Ok(text) = std::str::from_utf8(raw) {
         let trimmed = text.trim();
         if trimmed.starts_with('{') && trimmed.ends_with('}') {
-            return std::fs::write(alerts_file_path(), trimmed.as_bytes()).is_ok();
+            return write_persistent_config("coreflow_alerts.json", trimmed.as_bytes());
+        }
+    }
+    false
+}
+
+fn ui_prefs_file_path() -> std::path::PathBuf {
+    persistent_config_path("coreflow_ui_prefs.json")
+}
+
+fn load_ui_prefs_json() -> String {
+    let path = ui_prefs_file_path();
+    if let Ok(text) = std::fs::read_to_string(path) {
+        let trimmed = text.trim();
+        if trimmed.starts_with('{') && trimmed.ends_with('}') {
+            return trimmed.to_string();
+        }
+    }
+    "null".to_string()
+}
+
+fn save_ui_prefs_json(raw: &[u8]) -> bool {
+    if raw.len() > 512 * 1024 {
+        return false;
+    }
+    if let Ok(text) = std::str::from_utf8(raw) {
+        let trimmed = text.trim();
+        if trimmed.starts_with('{') && trimmed.ends_with('}') {
+            return write_persistent_config("coreflow_ui_prefs.json", trimmed.as_bytes());
         }
     }
     false
 }
 
 fn custom_games_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("coreflow_custom_games.json");
-        }
-    }
-    std::env::temp_dir().join("coreflow_custom_games.json")
+    persistent_config_path("coreflow_custom_games.json")
 }
 
 fn load_custom_games() -> std::collections::HashMap<String, String> {
@@ -3163,16 +3220,11 @@ fn save_custom_games(map: &std::collections::HashMap<String, String>) -> bool {
         entries.push(format!("\"{}\":\"{}\"", json_escape(k), json_escape(v)));
     }
     let body = format!("{{{}}}", entries.join(","));
-    std::fs::write(custom_games_file_path(), body.as_bytes()).is_ok()
+    write_persistent_config("coreflow_custom_games.json", body.as_bytes())
 }
 
 fn custom_avatar_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("rustcord_custom_avatar.img");
-        }
-    }
-    std::env::temp_dir().join("rustcord_custom_avatar.img")
+    persistent_config_path("rustcord_custom_avatar.img")
 }
 
 fn query_windows_user_name() -> String {
@@ -3397,12 +3449,7 @@ impl Default for MiniHudState {
 }
 
 fn minihud_state_file_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("coreflow_minihud_state.json");
-        }
-    }
-    std::env::temp_dir().join("coreflow_minihud_state.json")
+    persistent_config_path("coreflow_minihud_state.json")
 }
 
 fn load_minihud_state() -> MiniHudState {
@@ -3426,8 +3473,9 @@ fn load_minihud_state() -> MiniHudState {
                 "mini_h" => if let Ok(n) = val.parse::<i32>() { if n >= 100 { state.mini_h = n; } },
                 "normal_x" => if let Ok(n) = val.parse::<i32>() { state.normal_x = n; },
                 "normal_y" => if let Ok(n) = val.parse::<i32>() { state.normal_y = n; },
-                "normal_w" => if let Ok(n) = val.parse::<i32>() { if n >= 400 { state.normal_w = n; } },
-                "normal_h" => if let Ok(n) = val.parse::<i32>() { if n >= 300 { state.normal_h = n; } },
+                // 일반 창 크기는 최소 900x550 이상일 때만 유효한 일반 창 크기로 인정 (미니 HUD 크기로 덮어씌워지는 현상 원천 차단)
+                "normal_w" => if let Ok(n) = val.parse::<i32>() { if n >= 900 { state.normal_w = n; } },
+                "normal_h" => if let Ok(n) = val.parse::<i32>() { if n >= 550 { state.normal_h = n; } },
                 _ => {}
             }
         }
@@ -3436,13 +3484,14 @@ fn load_minihud_state() -> MiniHudState {
 }
 
 fn save_minihud_state(s: &MiniHudState) {
-    let path = minihud_state_file_path();
+    let nw = if s.normal_w >= 900 { s.normal_w } else { 1360 };
+    let nh = if s.normal_h >= 550 { s.normal_h } else { 880 };
     let json = format!(
         "{{\n  \"is_mini\": {},\n  \"wide\": {},\n  \"topmost\": {},\n  \"mini_x\": {},\n  \"mini_y\": {},\n  \"mini_w\": {},\n  \"mini_h\": {},\n  \"normal_x\": {},\n  \"normal_y\": {},\n  \"normal_w\": {},\n  \"normal_h\": {}\n}}",
         s.is_mini, s.wide, s.topmost, s.mini_x, s.mini_y, s.mini_w, s.mini_h,
-        s.normal_x, s.normal_y, s.normal_w, s.normal_h
+        s.normal_x, s.normal_y, nw, nh
     );
-    let _ = std::fs::write(path, json);
+    let _ = write_persistent_config("coreflow_minihud_state.json", json.as_bytes());
 }
 
 fn load_window_bounds() -> WindowBounds {
@@ -3456,7 +3505,7 @@ fn load_window_bounds() -> WindowBounds {
                 parts[2].parse::<i32>(),
                 parts[3].parse::<i32>(),
             ) {
-                if x > -10000 && y > -10000 && w >= 400 && h >= 300 {
+                if x > -10000 && y > -10000 && w >= 900 && h >= 550 {
                     return WindowBounds {
                         x,
                         y,
@@ -3472,12 +3521,11 @@ fn load_window_bounds() -> WindowBounds {
 }
 
 fn save_window_bounds(x: i32, y: i32, w: i32, h: i32) {
-    // 최소화 상태(-32000)나 비정상 크기는 무시
-    if x <= -10000 || y <= -10000 || w < 400 || h < 300 {
+    // 최소화 상태(-32000)나 미니 HUD 크기(900x550 미만)는 일반 창 크기로 저장하지 않음
+    if x <= -10000 || y <= -10000 || w < 900 || h < 550 {
         return;
     }
-    let path = bounds_file_path();
-    let _ = std::fs::write(path, format!("{x},{y},{w},{h}"));
+    let _ = write_persistent_config("rustcord_window_bounds.cfg", format!("{x},{y},{w},{h}").as_bytes());
 }
 
 fn parse_query_bounds(first_line: &str) {
@@ -3506,14 +3554,16 @@ fn parse_query_bounds(first_line: &str) {
         }
         if !is_mini {
             if let (Some(xv), Some(yv), Some(wv), Some(hv)) = (x, y, w, h) {
-                save_window_bounds(xv, yv, wv, hv);
-                let mut ms = load_minihud_state();
-                if !ms.is_mini {
-                    ms.normal_x = xv;
-                    ms.normal_y = yv;
-                    ms.normal_w = wv;
-                    ms.normal_h = hv;
-                    save_minihud_state(&ms);
+                if wv >= 900 && hv >= 550 {
+                    save_window_bounds(xv, yv, wv, hv);
+                    let mut ms = load_minihud_state();
+                    if !ms.is_mini {
+                        ms.normal_x = xv;
+                        ms.normal_y = yv;
+                        ms.normal_w = wv;
+                        ms.normal_h = hv;
+                        save_minihud_state(&ms);
+                    }
                 }
             }
         } else if let (Some(xv), Some(yv)) = (x, y) {
@@ -3522,8 +3572,8 @@ fn parse_query_bounds(first_line: &str) {
                 ms.is_mini = true;
                 ms.mini_x = xv;
                 ms.mini_y = yv;
-                if let Some(wv) = w { if wv >= 200 { ms.mini_w = wv; } }
-                if let Some(hv) = h { if hv >= 100 { ms.mini_h = hv; } }
+                if let Some(wv) = w { if (200..900).contains(&wv) { ms.mini_w = wv; } }
+                if let Some(hv) = h { if (100..550).contains(&hv) { ms.mini_h = hv; } }
                 save_minihud_state(&ms);
             }
         }
@@ -3598,10 +3648,9 @@ fn spawn_window_icon_applier() {
             return;
         }
 
-        let title_w = to_wide("CoreFlow — 시스템 모니터링 & 집중 스튜디오");
         for _ in 0..30 {
             thread::sleep(Duration::from_millis(350));
-            let hwnd = unsafe { FindWindowW(std::ptr::null(), title_w.as_ptr()) };
+            let hwnd = find_app_window();
             if hwnd != 0 {
                 unsafe {
                     if hicon_big != 0 {
@@ -3648,11 +3697,19 @@ fn control_app_window(
     const SWP_NOMOVE: u32 = 0x0002;
     const SWP_NOZORDER: u32 = 0x0004;
     const SWP_SHOWWINDOW: u32 = 0x0040;
+    const SW_RESTORE: i32 = 9;
 
-    let title_w = to_wide("CoreFlow — 시스템 모니터링 & 집중 스튜디오");
-    let hwnd = unsafe { FindWindowW(std::ptr::null(), title_w.as_ptr()) };
+    let hwnd = find_app_window();
     if hwnd == 0 {
         return false;
+    }
+
+    if w.is_some() && h.is_some() {
+        unsafe {
+            if IsZoomed(hwnd) != 0 || IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+        }
     }
 
     let mut flags = SWP_SHOWWINDOW;
@@ -3666,7 +3723,7 @@ fn control_app_window(
     };
 
     let (px, py) = match (x, y) {
-        (Some(xv), Some(yv)) => (xv, yv),
+        (Some(xv), Some(yv)) if xv > -10000 && yv > -10000 => (xv, yv),
         _ => {
             flags |= SWP_NOMOVE;
             (0, 0)
@@ -3890,7 +3947,7 @@ fn handle_client(
 
     last_heartbeat.store(now_secs(), Ordering::SeqCst);
     client_connected.store(true, Ordering::SeqCst);
-    if is_api_call {
+    if first_line.starts_with("GET /api/stats") || first_line.starts_with("POST /api/quit") || first_line.starts_with("GET /api/quit") {
         parse_query_bounds(&first_line);
     }
 
@@ -4107,8 +4164,8 @@ fn handle_client(
         if let Some(mh) = parse_query_i32(&first_line, "mh") { if mh >= 100 { ms.mini_h = mh; } }
         if let Some(nx) = parse_query_i32(&first_line, "nx") { ms.normal_x = nx; }
         if let Some(ny) = parse_query_i32(&first_line, "ny") { ms.normal_y = ny; }
-        if let Some(nw) = parse_query_i32(&first_line, "nw") { if nw >= 400 { ms.normal_w = nw; } }
-        if let Some(nh) = parse_query_i32(&first_line, "nh") { if nh >= 300 { ms.normal_h = nh; } }
+        if let Some(nw) = parse_query_i32(&first_line, "nw") { if nw >= 900 { ms.normal_w = nw; } }
+        if let Some(nh) = parse_query_i32(&first_line, "nh") { if nh >= 550 { ms.normal_h = nh; } }
         save_minihud_state(&ms);
         let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}";
         let _ = stream.write_all(resp.as_bytes());
@@ -4333,6 +4390,16 @@ fn handle_client(
             body
         );
         let _ = stream.write_all(resp.as_bytes());
+    } else if first_line.starts_with("POST /api/ui_prefs") {
+        let body_bytes = read_full_http_body(&mut stream, &buf[..n]);
+        let ok = save_ui_prefs_json(&body_bytes);
+        let body = if ok { r#"{"ok":true}"# } else { r#"{"ok":false}"# };
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("GET /api/check_update") {
         let json = check_github_update();
         let resp = format!(
@@ -4389,6 +4456,13 @@ fn handle_client(
         let saved_mode = load_theme_pref();
         let saved_todos = load_todos_json();
         let saved_alerts = load_alerts_json();
+        let saved_ui_prefs = load_ui_prefs_json();
+        let ms = load_minihud_state();
+        let saved_minihud = format!(
+            "{{\"is_mini\":{},\"wide\":{},\"topmost\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
+            ms.is_mini, ms.wide, ms.topmost, ms.mini_x, ms.mini_y, ms.mini_w, ms.mini_h,
+            ms.normal_x, ms.normal_y, ms.normal_w, ms.normal_h
+        );
         let body = INDEX_HTML
             .replace(
                 "let themeOverride = 'auto';",
@@ -4397,7 +4471,9 @@ fn handle_client(
             .replace("__COREFLOW_SESSION_TOKEN__", session_token)
             .replace("__COREFLOW_APP_VERSION__", APP_VERSION)
             .replace("/*__COREFLOW_INITIAL_TODOS__*/[]", &saved_todos)
-            .replace("/*__COREFLOW_INITIAL_ALERTS__*/null", &saved_alerts);
+            .replace("/*__COREFLOW_INITIAL_ALERTS__*/null", &saved_alerts)
+            .replace("/*__COREFLOW_INITIAL_UI_PREFS__*/null", &saved_ui_prefs)
+            .replace("/*__COREFLOW_INITIAL_MINIHUD__*/null", &saved_minihud);
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
@@ -4414,7 +4490,35 @@ static SUPPRESS_QUIT_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 fn find_app_window() -> isize {
     let title_w = to_wide(APP_WINDOW_TITLE);
-    unsafe { FindWindowW(std::ptr::null(), title_w.as_ptr()) }
+    let exact = unsafe { FindWindowW(std::ptr::null(), title_w.as_ptr()) };
+    if exact != 0 {
+        return exact;
+    }
+    unsafe {
+        let mut child: isize = 0;
+        loop {
+            child = FindWindowExW(0, child, std::ptr::null(), std::ptr::null());
+            if child == 0 {
+                break;
+            }
+            if IsWindowVisible(child) == 0 {
+                continue;
+            }
+            let len = GetWindowTextLengthW(child);
+            if len <= 0 {
+                continue;
+            }
+            let mut buf = vec![0u16; (len as usize) + 1];
+            let read_len = GetWindowTextW(child, buf.as_mut_ptr(), buf.len() as i32);
+            if read_len > 0 {
+                let text = String::from_utf16_lossy(&buf[..read_len as usize]);
+                if text.starts_with("CoreFlow — 시스템 모니터링") {
+                    return child;
+                }
+            }
+        }
+    }
+    0
 }
 
 /// 이전(멈춘) CoreFlow 창이 남아 있으면 정상 종료 메시지(WM_CLOSE)를 보내 정리
@@ -6380,6 +6484,97 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     color: #fff;
   }
 
+  /* 화면·미니 HUD 맞춤 설정 스타일 */
+  .custom-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .custom-toggle-card {
+    background-color: var(--bg-primary);
+    border: 1.5px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 11px 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+  }
+
+  .custom-toggle-card:hover {
+    border-color: var(--brand);
+    background-color: var(--bg-hover);
+  }
+
+  .custom-toggle-card.active {
+    border-color: var(--brand);
+    background-color: rgba(var(--brand-rgb), 0.11);
+  }
+
+  .custom-toggle-card.disabled-item {
+    opacity: 0.55;
+  }
+
+  .hud-style-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .hud-style-card {
+    background-color: var(--bg-primary);
+    border: 2px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.16s ease;
+  }
+
+  .hud-style-card:hover {
+    border-color: var(--brand);
+  }
+
+  .hud-style-card.selected {
+    border-color: var(--brand);
+    background-color: rgba(var(--brand-rgb), 0.12);
+    box-shadow: 0 0 0 1px var(--brand);
+  }
+
+  .hud-diagram-box {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+  }
+
+  .hud-diagram-bar {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    padding: 10px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+  }
+
+  .hud-diagram-cell {
+    height: 18px;
+    border-radius: 4px;
+    background: rgba(var(--brand-rgb), 0.35);
+    border: 1px solid rgba(var(--brand-rgb), 0.65);
+  }
+
   .hidden {
     display: none !important;
   }
@@ -6468,6 +6663,19 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
       </svg>
     </div>
+    <div class="server-icon" onclick="openUiSettingsModal()" id="rail-uisettings" title="원하는 하드웨어 모니터링 항목 선택 & 미니 HUD(박스형/가로바) 설정">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="21" x2="4" y2="14"></line>
+        <line x1="4" y1="10" x2="4" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12" y2="3"></line>
+        <line x1="20" y1="21" x2="20" y2="16"></line>
+        <line x1="20" y1="12" x2="20" y2="3"></line>
+        <line x1="1" y1="14" x2="7" y2="14"></line>
+        <line x1="9" y1="8" x2="15" y2="8"></line>
+        <line x1="17" y1="16" x2="23" y2="16"></line>
+      </svg>
+    </div>
     <div class="server-icon" onclick="openHelpModal()" id="rail-help" title="도움말 & 하드웨어/게이밍 이상 징후 진단 가이드 (단축키 F1)">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"></circle>
@@ -6553,6 +6761,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </svg>
         <span>스마트-경고-알림</span>
       </div>
+      <div class="channel-item" id="chan-uisettings" onclick="openUiSettingsModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+          <line x1="4" y1="21" x2="4" y2="14"></line>
+          <line x1="4" y1="10" x2="4" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12" y2="3"></line>
+          <line x1="20" y1="21" x2="20" y2="16"></line>
+          <line x1="20" y1="12" x2="20" y2="3"></line>
+          <line x1="1" y1="14" x2="7" y2="14"></line>
+          <line x1="9" y1="8" x2="15" y2="8"></line>
+          <line x1="17" y1="16" x2="23" y2="16"></line>
+        </svg>
+        <span>화면·HUD-맞춤설정</span>
+      </div>
       <div class="channel-item" id="chan-help" onclick="openHelpModal()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
           <circle cx="12" cy="12" r="10"></circle>
@@ -6626,6 +6848,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <button id="btn-view-mode" class="btn secondary" onclick="toggleDashboardViewMode()" title="그래프 차트 중심 화면과 상세 수치 그리드 화면을 전환합니다">
           <span id="btn-view-mode-icon">📊</span> <span id="btn-view-mode-text">차트형</span>
         </button>
+        <button id="btn-uisettings" class="btn secondary" onclick="openUiSettingsModal()" title="원하는 하드웨어 모니터링 항목만 골라 보거나 미니 HUD(박스형/가로바) 스타일을 설정합니다">
+          🎛️ 화면·HUD 설정
+        </button>
         <button id="btn-minihud" class="btn secondary" onclick="enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
           🗗 미니 HUD
         </button>
@@ -6681,7 +6906,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 상단 4열 하드웨어 & 게이밍 요약 그리드 (CPU / RAM / GPU / FPS) -->
       <section class="grid-4" id="sec-metrics">
         <!-- 1. CPU 카드 -->
-        <div class="card zoom-card" ondblclick="openDetailView('cpu')" title="더블클릭하여 CPU 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-cpu" ondblclick="openDetailView('cpu')" title="더블클릭하여 CPU 전체 화면 상세 모니터링 열기">
           <div class="card-header">
             <div class="card-title">⚡ CPU 부하</div>
             <span class="metric-sub" id="core-count-label">0 코어</span>
@@ -6722,7 +6947,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 2. RAM 카드 -->
-        <div class="card zoom-card" ondblclick="openDetailView('mem')" title="더블클릭하여 RAM 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-mem" ondblclick="openDetailView('mem')" title="더블클릭하여 RAM 전체 화면 상세 모니터링 열기">
           <div class="card-header">
             <div class="card-title">💾 시스템 RAM</div>
             <span class="metric-sub" id="swap-label">Swap: 0 GB</span>
@@ -6765,7 +6990,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 3. GPU (NVIDIA RTX) 카드 -->
-        <div class="card zoom-card" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-gpu" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 전체 화면 상세 모니터링 열기">
           <div class="card-header">
             <div class="card-title">🎛️ GPU & VRAM</div>
             <span class="metric-sub" id="gpu-temp-badge" style="color: var(--neon-green); font-weight: 700;">0°C</span>
@@ -6813,7 +7038,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 4. 게임 실시간 FPS 모니터 카드 -->
-        <div class="card zoom-card" ondblclick="openDetailView('fps')" title="더블클릭하여 FPS 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-fps" ondblclick="openDetailView('fps')" title="더블클릭하여 FPS 전체 화면 상세 모니터링 열기">
           <div class="card-header">
             <div class="card-title">🎮 게임 FPS</div>
             <span class="badge" id="fps-mode-badge" style="font-variant-numeric: tabular-nums;">IDLE</span>
@@ -7479,14 +7704,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
       <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
         <button id="mh-topmost-btn" class="mini-btn active" onclick="toggleMiniHudTopmost()" title="다른 창이나 창모드 게임 위에 항상 고정(Topmost)할지 선택합니다">📌 항상 위 ON</button>
-        <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="컴팩트 2단 박스형(440×255)과 슬림 가로 바형(740×145) 레이아웃을 전환합니다">📐 가로바 전환</button>
+        <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="컴팩트 2단 박스형과 슬림 1줄 가로 바형 레이아웃을 즉시 전환합니다">📐 가로바 전환</button>
+        <button class="mini-btn" onclick="openUiSettingsFromMiniHud()" title="표시할 하드웨어 항목 선택 및 박스형/가로바 레이아웃 설정 화면 열기">⚙️ 설정</button>
         <button class="mini-btn active" onclick="exitMiniHudMode()" title="원래 창 크기와 위치로 즉시 복귀합니다 (Esc / F10)">⤢ 복귀</button>
       </div>
     </div>
 
-    <div class="mini-hud-grid" ondblclick="event.stopPropagation()">
+    <div class="mini-hud-grid" id="mini-hud-grid" ondblclick="event.stopPropagation()">
       <!-- 1. 게임 FPS -->
-      <div class="mini-hud-tile">
+      <div class="mini-hud-tile" id="mh-tile-fps">
         <div class="mini-hud-label">
           <span>🎮 FPS</span>
           <span id="mh-fps-low" style="color:var(--text-muted)">1%L 0</span>
@@ -7499,7 +7725,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 2. CPU 부하 -->
-      <div class="mini-hud-tile">
+      <div class="mini-hud-tile" id="mh-tile-cpu">
         <div class="mini-hud-label">
           <span>⚡ CPU</span>
           <span id="mh-cpu-core">0코어</span>
@@ -7512,7 +7738,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 3. GPU & 온도 -->
-      <div class="mini-hud-tile">
+      <div class="mini-hud-tile" id="mh-tile-gpu">
         <div class="mini-hud-label">
           <span>🎛️ GPU</span>
           <span id="mh-gpu-temp" style="color:var(--neon-green); font-weight:900;">0°C</span>
@@ -7525,7 +7751,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 4. 시스템 RAM -->
-      <div class="mini-hud-tile">
+      <div class="mini-hud-tile" id="mh-tile-ram">
         <div class="mini-hud-label">
           <span>💾 RAM</span>
           <span id="mh-ram-swap">Swap 0G</span>
@@ -7538,7 +7764,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 5. 네트워크 속도 & 핑 -->
-      <div class="mini-hud-tile">
+      <div class="mini-hud-tile" id="mh-tile-net">
         <div class="mini-hud-label">
           <span id="mh-net-label">🌐 NET/PING</span>
           <span id="mh-disk-io">💽 0.0M</span>
@@ -7549,7 +7775,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 6. 플레이 시간 / 뽀모도로 타이머 -->
-      <div class="mini-hud-tile" onclick="togglePomodoro()" style="cursor:pointer;" title="클릭하여 뽀모도로 타이머 시작/일시정지">
+      <div class="mini-hud-tile" id="mh-tile-timer" onclick="togglePomodoro()" style="cursor:pointer;" title="클릭하여 뽀모도로 타이머 시작/일시정지">
         <div class="mini-hud-label">
           <span id="mh-timer-label">🍅 뽀모도로</span>
           <span id="mh-timer-state" style="color:var(--brand);">클릭제어</span>
@@ -7559,6 +7785,218 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <div class="progress-fill" id="mh-timer-bar" style="width:0%; background:var(--brand);"></div>
         </div>
         <div class="mini-hud-sub" id="mh-timer-sub">게임 시 플레이타임 표시</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 원하는 하드웨어 모니터링 선택 & 미니 HUD(박스형/가로바) 맞춤 설정 오버레이 -->
+  <div id="uisettings-overlay" class="detail-overlay hidden">
+    <div class="detail-header">
+      <div class="detail-title-group">
+        <div class="detail-title">🎛️ 하드웨어 모니터링 항목 선택 & 미니 HUD 맞춤 설정</div>
+        <div class="detail-sub">내가 보고 싶은 하드웨어 지표만 골라서 띄우고, 미니 HUD를 '박스형'으로 쓸지 '가로바'로 쓸지 취향대로 설정하세요</div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn secondary" onclick="resetUiPrefs()">🔄 전체 기본값 복원</button>
+        <button class="btn secondary" style="border-color:var(--neon-green); color:var(--neon-green);" onclick="closeUiSettingsModal(); enterMiniHudMode();">🗗 설정한 미니 HUD 바로 켜기 (F10)</button>
+        <button class="btn" onclick="closeUiSettingsModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+      </div>
+    </div>
+
+    <div class="detail-body" style="gap: 16px;">
+      <!-- 상단 원클릭 추천 프리셋 배너 -->
+      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.07);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">⚡ 원클릭 추천 구성 프리셋</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">자주 쓰는 조합을 버튼 하나로 바로 적용한 뒤 아래에서 세부 항목을 자유롭게 켜고 끌 수 있습니다</div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn secondary" onclick="applyUiPreset('all')">🌟 전체 다 보기 (기본)</button>
+            <button class="btn secondary" onclick="applyUiPreset('gamer')">🎮 게이머 핵심 (FPS+GPU+CPU)</button>
+            <button class="btn secondary" onclick="applyUiPreset('minimal')">🔥 초경량 (FPS+GPU 온도만)</button>
+            <button class="btn secondary" onclick="applyUiPreset('work')">💻 작업/업무 집중 (CPU+RAM+할일)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 메인 2열 설정 영역 -->
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 16px; flex-shrink: 0; padding-bottom: 12px;">
+
+        <!-- 좌측: 통합 대시보드 하드웨어 모니터링 표시 항목 선택 -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 14px;">
+          <div class="card-header" style="margin-bottom: 0;">
+            <div>
+              <div class="card-title" style="font-size: 15px; color: var(--text-normal);">🖥️ 1. 메인 대시보드 모니터링 항목 선택</div>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">체크를 해제한 카드는 대시보드에서 숨겨지며, 남은 카드들이 빈자리 없이 화면에 맞춰 큼직하게 자동 정렬됩니다.</div>
+            </div>
+            <span class="badge" id="ui-dash-count-badge" style="color: var(--brand); flex-shrink: 0;">7 / 7개 표시 중</span>
+          </div>
+
+          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 2px;">상단 핵심 하드웨어 & 게이밍 카드 (4종)</div>
+          <div class="custom-toggle-grid">
+            <div class="custom-toggle-card active" id="uicard-dashCpu" onclick="toggleUiPref('dashCpu')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">⚡ CPU 부하</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">전체 사용률 및 논리 코어 상태</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashCpu">ON</span>
+            </div>
+
+            <div class="custom-toggle-card active" id="uicard-dashRam" onclick="toggleUiPref('dashRam')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">💾 시스템 RAM</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">물리 메모리 및 가상 메모리(Swap)</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashRam">ON</span>
+            </div>
+
+            <div class="custom-toggle-card active" id="uicard-dashGpu" onclick="toggleUiPref('dashGpu')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🎛️ GPU & VRAM</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">그래픽카드 부하·온도·전력·VRAM</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashGpu">ON</span>
+            </div>
+
+            <div class="custom-toggle-card active" id="uicard-dashFps" onclick="toggleUiPref('dashFps')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🎮 게임 실시간 FPS</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">인게임 프레임·1% Low·프레임타임</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashFps">ON</span>
+            </div>
+          </div>
+
+          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 4px;">중단 요약 바 & 하단 상세 패널 (3종)</div>
+          <div style="display: flex; flex-direction: column; gap: 9px;">
+            <div class="custom-toggle-card active" id="uicard-dashNetDisk" onclick="toggleUiPref('dashNetDisk')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🌐 네트워크 속도·핑(Ping) & 디스크 I/O 요약 바</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">실시간 다운로드/업로드 속도, 게임 서버 핑, 디스크 읽기/쓰기 한 줄 요약</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashNetDisk">ON</span>
+            </div>
+
+            <div class="custom-toggle-card active" id="uicard-dashProcs" onclick="toggleUiPref('dashProcs')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">📊 실시간 상위 프로세스 목록 표</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">CPU·메모리를 많이 쓰는 프로그램 확인 및 우클릭 강제 종료</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashProcs">ON</span>
+            </div>
+
+            <div class="custom-toggle-card active" id="uicard-dashPomo" onclick="toggleUiPref('dashPomo')">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🍅 뽀모도로 집중 타이머 & 오늘 할 일 보드</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">25분 집중 타이머와 체크리스트 (끄면 프로세스 표가 전체 폭으로 넓어집니다)</div>
+              </div>
+              <span class="switch-pill on" id="uipill-dashPomo">ON</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 우측: 미니 HUD 형태(박스형 vs 가로바) 및 표시 타일 설정 -->
+        <div class="card" style="overflow: visible; padding: 18px; gap: 14px;">
+          <div class="card-header" style="margin-bottom: 0;">
+            <div>
+              <div class="card-title" style="font-size: 15px; color: var(--text-normal);">🗗 2. 미니 HUD 스타일 (박스형 vs 가로바) & 항목 설정</div>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">단축키 <code>F10</code> 또는 상단 [🗗 미니 HUD] 버튼 클릭 시 전환되는 미니 상태창의 모양을 설정합니다.</div>
+            </div>
+            <span class="badge" id="ui-hud-count-badge" style="color: var(--neon-green); flex-shrink: 0;">6개 타일 활성</span>
+          </div>
+
+          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted);">미니 HUD 창 모양 선택 (박스형 / 가로바형)</div>
+          <div class="hud-style-grid">
+            <!-- 박스형 선택 카드 -->
+            <div class="hud-style-card selected" id="hudstyle-box" onclick="setMiniHudStylePref(false)">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">📦 컴팩트 박스형</span>
+                <span class="badge" id="hudstyle-box-badge" style="background: var(--brand); color: #fff;">선택됨 ✓</span>
+              </div>
+              <div class="hud-diagram-box">
+                <div class="hud-diagram-cell"></div>
+                <div class="hud-diagram-cell"></div>
+                <div class="hud-diagram-cell"></div>
+                <div class="hud-diagram-cell"></div>
+                <div class="hud-diagram-cell"></div>
+                <div class="hud-diagram-cell"></div>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.45;">
+                <strong>2단 바둑판 박스 모양</strong>으로 보조 모니터 구석이나 바탕화면 한쪽에 아담하게 모아 보기 좋습니다.
+              </div>
+            </div>
+
+            <!-- 가로바 선택 카드 -->
+            <div class="hud-style-card" id="hudstyle-bar" onclick="setMiniHudStylePref(true)">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">📏 슬림 가로 바형</span>
+                <span class="badge" id="hudstyle-bar-badge">클릭하여 선택</span>
+              </div>
+              <div style="display: flex; align-items: center; flex: 1;">
+                <div class="hud-diagram-bar" style="width: 100%;">
+                  <div class="hud-diagram-cell"></div>
+                  <div class="hud-diagram-cell"></div>
+                  <div class="hud-diagram-cell"></div>
+                  <div class="hud-diagram-cell"></div>
+                  <div class="hud-diagram-cell"></div>
+                  <div class="hud-diagram-cell"></div>
+                </div>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.45;">
+                <strong>1줄 슬림 가로 스트립 모양</strong>으로 모니터 상단·하단이나 창모드 게임 위쪽에 얇고 길게 띄워두기 좋습니다.
+              </div>
+            </div>
+          </div>
+
+          <!-- 미니 HUD 항상 위 고정 옵션 -->
+          <div class="custom-toggle-card active" id="uicard-hudTopmost" onclick="toggleUiPref('hudTopmost')">
+            <div>
+              <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">📌 미니 HUD를 항상 다른 창 위에 고정 (Always on Top)</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임이나 인터넷 창을 클릭해도 미니 HUD가 뒤로 가려지지 않고 항상 맨 위에 보이도록 고정합니다</div>
+            </div>
+            <span class="switch-pill on" id="uipill-hudTopmost">ON</span>
+          </div>
+
+          <!-- 미니 HUD에 표시할 타일 개별 선택 -->
+          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 2px;">미니 HUD에 표시할 하드웨어 타일 선택 (원하는 항목만 골라 담기)</div>
+          <div class="custom-toggle-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+            <div class="custom-toggle-card active" id="uicard-hudFps" onclick="toggleUiPref('hudFps')">
+              <span style="font-size: 12.5px; font-weight: 800;">🎮 게임 FPS</span>
+              <span class="switch-pill on" id="uipill-hudFps">ON</span>
+            </div>
+            <div class="custom-toggle-card active" id="uicard-hudCpu" onclick="toggleUiPref('hudCpu')">
+              <span style="font-size: 12.5px; font-weight: 800;">⚡ CPU 부하</span>
+              <span class="switch-pill on" id="uipill-hudCpu">ON</span>
+            </div>
+            <div class="custom-toggle-card active" id="uicard-hudGpu" onclick="toggleUiPref('hudGpu')">
+              <span style="font-size: 12.5px; font-weight: 800;">🎛️ GPU·온도</span>
+              <span class="switch-pill on" id="uipill-hudGpu">ON</span>
+            </div>
+            <div class="custom-toggle-card active" id="uicard-hudRam" onclick="toggleUiPref('hudRam')">
+              <span style="font-size: 12.5px; font-weight: 800;">💾 시스템 RAM</span>
+              <span class="switch-pill on" id="uipill-hudRam">ON</span>
+            </div>
+            <div class="custom-toggle-card active" id="uicard-hudNet" onclick="toggleUiPref('hudNet')">
+              <span style="font-size: 12.5px; font-weight: 800;">🌐 핑·네트워크</span>
+              <span class="switch-pill on" id="uipill-hudNet">ON</span>
+            </div>
+            <div class="custom-toggle-card active" id="uicard-hudTimer" onclick="toggleUiPref('hudTimer')">
+              <span style="font-size: 12.5px; font-weight: 800;">⏱️ 플레이타임</span>
+              <span class="switch-pill on" id="uipill-hudTimer">ON</span>
+            </div>
+          </div>
+
+          <!-- 실시간 미니 HUD 배치 미리보기 -->
+          <div style="background: var(--bg-primary); border: 1px dashed var(--border-subtle); border-radius: 10px; padding: 10px 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11.5px; font-weight: 800; color: var(--text-muted);">👀 현재 설정된 미니 HUD 배치 미리보기</span>
+              <span id="ui-hud-preview-meta" style="font-size: 11px; color: var(--brand); font-weight: 700;">📦 컴팩트 박스형 (3열 × 2단)</span>
+            </div>
+            <div id="ui-hud-live-preview" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;"></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -7861,6 +8299,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       closeAlertSettings();
       closeGameScanModal();
       closeUpdateModal();
+      closeUiSettingsModal();
       closeHelpModal();
     }
   });
@@ -8083,6 +8522,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeRecordAnalysis();
     closeAlertSettings();
     closeUpdateModal();
+    closeUiSettingsModal();
     closeHelpModal();
     const overlay = document.getElementById('gamescan-overlay');
     if (overlay) overlay.classList.remove('hidden');
@@ -8536,8 +8976,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeDetailView();
     closeRecordAnalysis();
     closeAlertSettings();
+    closeUiSettingsModal();
     closeHelpModal();
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === tab);
@@ -8565,10 +9006,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       secBottom.style.gridTemplateColumns = 'minmax(0, 1.35fr) minmax(0, 1fr)';
       cardProc.classList.remove('hidden');
       cardProd.classList.remove('hidden');
+      applyUiPrefs(false);
     } else if (tab === 'system') {
       document.getElementById('top-title').textContent = '하드웨어-GPU-상세';
       document.getElementById('top-desc').textContent = '논리 코어별 부하 • GPU 전력/클럭 • 전체 프로세스';
       secMetrics.classList.remove('hidden');
+      secMetrics.style.gridTemplateColumns = '';
+      ['card-metric-cpu', 'card-metric-mem', 'card-metric-gpu', 'card-metric-fps'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('hidden');
+      });
       if (secNetdiskStrip) secNetdiskStrip.classList.add('hidden');
       secCores.classList.remove('hidden');
       secBottom.classList.remove('hidden');
@@ -9176,17 +9623,84 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   // ==================== 원클릭 컴팩트 미니 HUD 모드 ====================
+  const INITIAL_MINIHUD_DATA = /*__COREFLOW_INITIAL_MINIHUD__*/null;
   let isMiniHudMode = false;
   let miniHudTopmost = true;
   let miniHudWideLayout = false;
-  let savedNormalBounds = null;
+  let savedNormalBounds = (function() {
+    if (INITIAL_MINIHUD_DATA && INITIAL_MINIHUD_DATA.normal_w >= 900 && INITIAL_MINIHUD_DATA.normal_h >= 550) {
+      return {
+        x: INITIAL_MINIHUD_DATA.normal_x ?? 120,
+        y: INITIAL_MINIHUD_DATA.normal_y ?? 80,
+        w: INITIAL_MINIHUD_DATA.normal_w,
+        h: INITIAL_MINIHUD_DATA.normal_h
+      };
+    }
+    try {
+      const raw = localStorage.getItem('coreflow_normal_bounds');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.w >= 900 && parsed.h >= 550) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return { x: 120, y: 80, w: 1360, h: 880 };
+  })();
+
+  function persistNormalBounds(nb) {
+    if (!nb || nb.w < 900 || nb.h < 550) return;
+    savedNormalBounds = {
+      x: (nb.x > -10000) ? nb.x : 120,
+      y: (nb.y > -10000) ? nb.y : 80,
+      w: Math.max(960, Math.round(nb.w)),
+      h: Math.max(640, Math.round(nb.h))
+    };
+    try {
+      localStorage.setItem('coreflow_normal_bounds', JSON.stringify(savedNormalBounds));
+    } catch (e) {}
+  }
+
+  function resizeNativeAppWindow(w, h, x, y) {
+    try {
+      if (typeof w === 'number' && typeof h === 'number' && w >= 220 && h >= 110) {
+        window.resizeTo(Math.round(w), Math.round(h));
+      }
+      if (typeof x === 'number' && typeof y === 'number' && x > -10000 && y > -10000) {
+        window.moveTo(Math.round(x), Math.round(y));
+      }
+    } catch (e) {}
+  }
+
+  function getMiniHudTargetSize() {
+    const hudKeys = ['hudFps', 'hudCpu', 'hudGpu', 'hudRam', 'hudNet', 'hudTimer'];
+    const visibleCount = (typeof uiPrefs !== 'undefined' && uiPrefs)
+      ? Math.max(1, hudKeys.filter(k => uiPrefs[k] !== false).length)
+      : 6;
+    if (miniHudWideLayout) {
+      const cols = visibleCount;
+      const rows = 1;
+      const w = Math.max(240, Math.min(820, visibleCount * 126 + 24));
+      const h = 168;
+      return { w, h, cols, rows, visibleCount };
+    } else {
+      if (visibleCount <= 1) return { w: 240, h: 168, cols: 1, rows: 1, visibleCount };
+      if (visibleCount === 2) return { w: 340, h: 168, cols: 2, rows: 1, visibleCount };
+      if (visibleCount === 3) return { w: 450, h: 168, cols: 3, rows: 1, visibleCount };
+      if (visibleCount === 4) return { w: 360, h: 265, cols: 2, rows: 2, visibleCount };
+      return { w: 450, h: 265, cols: 3, rows: 2, visibleCount };
+    }
+  }
 
   async function syncMiniHudState(isMini) {
+    const target = getMiniHudTargetSize();
     const curX = Math.round(window.screenX ?? window.screenLeft ?? 0);
     const curY = Math.round(window.screenY ?? window.screenTop ?? 0);
-    const curW = Math.round(window.outerWidth || (miniHudWideLayout ? 760 : 450));
-    const curH = Math.round(window.outerHeight || (miniHudWideLayout ? 168 : 265));
-    const nb = savedNormalBounds || { x: 120, y: 80, w: 1360, h: 880 };
+    const curW = isMini ? target.w : Math.round(window.outerWidth || target.w);
+    const curH = isMini ? target.h : Math.round(window.outerHeight || target.h);
+    const nb = (savedNormalBounds && savedNormalBounds.w >= 900 && savedNormalBounds.h >= 550)
+      ? savedNormalBounds
+      : { x: 120, y: 80, w: 1360, h: 880 };
     const params = new URLSearchParams({
       mini: isMini ? '1' : '0',
       wide: miniHudWideLayout ? '1' : '0',
@@ -9207,56 +9721,85 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
+  function applyMiniHudSavedObj(st, hasMiniParam) {
+    if (st && typeof st.wide === 'boolean') {
+      if (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudLayoutWide === 'boolean') {
+        miniHudWideLayout = uiPrefs.hudLayoutWide;
+      } else {
+        miniHudWideLayout = Boolean(st.wide);
+      }
+    }
+    if (st && typeof st.topmost === 'boolean') {
+      if (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudTopmost === 'boolean') {
+        miniHudTopmost = uiPrefs.hudTopmost;
+      } else {
+        miniHudTopmost = st.topmost !== false;
+      }
+    }
+    if (st && st.normal_w >= 900 && st.normal_h >= 550) {
+      persistNormalBounds({
+        x: st.normal_x ?? 120,
+        y: st.normal_y ?? 80,
+        w: st.normal_w,
+        h: st.normal_h
+      });
+    }
+    if (hasMiniParam || (st && st.is_mini)) {
+      isMiniHudMode = true;
+      const overlay = document.getElementById('mini-hud-overlay');
+      if (overlay) {
+        overlay.classList.remove('hidden');
+        overlay.classList.toggle('layout-wide', miniHudWideLayout);
+      }
+      updateMiniHudControlsUI();
+      applyUiPrefs(false);
+      if (lastStatsData) {
+        renderMiniHud();
+      }
+    } else if (window.outerWidth >= 900 && window.outerHeight >= 550) {
+      persistNormalBounds({
+        x: Math.round(window.screenX ?? window.screenLeft ?? 120),
+        y: Math.round(window.screenY ?? window.screenTop ?? 80),
+        w: Math.round(window.outerWidth),
+        h: Math.round(window.outerHeight)
+      });
+    }
+  }
+
   async function initMiniHudModeFromSaved() {
     const urlParams = new URLSearchParams(window.location.search);
     const hasMiniParam = urlParams.get('mini') === '1';
+    // 1. 서버가 HTML에 주입한 초기 미니 HUD 상태를 즉시 동기 반영하여 fetchStats()가 잘못된 창 크기를 덮어쓰지 않도록 보호
+    if (INITIAL_MINIHUD_DATA || hasMiniParam) {
+      applyMiniHudSavedObj(INITIAL_MINIHUD_DATA, hasMiniParam);
+    }
     try {
       const res = await apiFetch('/api/minihud_state');
       const st = await res.json();
-      if (hasMiniParam || (st && st.is_mini)) {
-        isMiniHudMode = true;
-        miniHudWideLayout = Boolean(st.wide);
-        miniHudTopmost = st.topmost !== false;
-        if (st.normal_w >= 400 && st.normal_h >= 300) {
-          savedNormalBounds = {
-            x: st.normal_x || 120,
-            y: st.normal_y || 80,
-            w: st.normal_w,
-            h: st.normal_h
-          };
-        }
-        const overlay = document.getElementById('mini-hud-overlay');
-        if (overlay) {
-          overlay.classList.remove('hidden');
-          overlay.classList.toggle('layout-wide', miniHudWideLayout);
-        }
-        updateMiniHudControlsUI();
-        if (lastStatsData) {
-          renderMiniHud();
-        }
-      }
-    } catch (e) {
-      if (hasMiniParam) {
-        isMiniHudMode = true;
-        const overlay = document.getElementById('mini-hud-overlay');
-        if (overlay) overlay.classList.remove('hidden');
-        updateMiniHudControlsUI();
-      }
-    }
+      applyMiniHudSavedObj(st, hasMiniParam);
+    } catch (e) {}
   }
 
   async function enterMiniHudMode() {
     if (isMiniHudMode) return;
-    savedNormalBounds = {
-      x: Math.round(window.screenX ?? window.screenLeft ?? 120),
-      y: Math.round(window.screenY ?? window.screenTop ?? 80),
-      w: Math.max(800, Math.round(window.outerWidth || 1360)),
-      h: Math.max(600, Math.round(window.outerHeight || 880))
-    };
+    if (typeof uiPrefs !== 'undefined' && uiPrefs) {
+      miniHudWideLayout = Boolean(uiPrefs.hudLayoutWide);
+      miniHudTopmost = uiPrefs.hudTopmost !== false;
+    }
+    if (window.outerWidth >= 900 && window.outerHeight >= 550) {
+      persistNormalBounds({
+        x: Math.round(window.screenX ?? window.screenLeft ?? 120),
+        y: Math.round(window.screenY ?? window.screenTop ?? 80),
+        w: Math.round(window.outerWidth),
+        h: Math.round(window.outerHeight)
+      });
+    }
     isMiniHudMode = true;
     closeDetailView();
     closeRecordAnalysis();
     closeAlertSettings();
+    closeUiSettingsModal();
+    closeHelpModal();
 
     const overlay = document.getElementById('mini-hud-overlay');
     if (overlay) {
@@ -9264,12 +9807,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       overlay.classList.toggle('layout-wide', miniHudWideLayout);
     }
     updateMiniHudControlsUI();
+    applyUiPrefs(false);
     renderMiniHud();
 
-    const targetW = miniHudWideLayout ? 760 : 450;
-    const targetH = miniHudWideLayout ? 168 : 265;
+    const target = getMiniHudTargetSize();
+    resizeNativeAppWindow(target.w, target.h);
     try {
-      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetW}&h=${targetH}`, { method: 'POST' });
+      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -9282,17 +9826,52 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const overlay = document.getElementById('mini-hud-overlay');
     if (overlay) overlay.classList.add('hidden');
 
-    const b = savedNormalBounds || { x: 120, y: 80, w: 1360, h: 880 };
+    // URL에 ?mini=1 쿼리가 남아있으면 새로고침 시 다시 미니 HUD로 들어가는 현상 제거
     try {
-      await apiFetch(`/api/window_ctl?topmost=0&x=${b.x}&y=${b.y}&w=${b.w}&h=${b.h}`, { method: 'POST' });
+      if (window.location.search.includes('mini=')) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    } catch (e) {}
+
+    const rawB = (savedNormalBounds && savedNormalBounds.w >= 900 && savedNormalBounds.h >= 550)
+      ? savedNormalBounds
+      : { x: 120, y: 80, w: 1360, h: 880 };
+    const targetW = Math.max(960, Math.round(rawB.w || 1360));
+    const targetH = Math.max(640, Math.round(rawB.h || 880));
+    const targetX = (typeof rawB.x === 'number' && rawB.x > -10000) ? Math.round(rawB.x) : 120;
+    const targetY = (typeof rawB.y === 'number' && rawB.y > -10000) ? Math.round(rawB.y) : 80;
+
+    // 1. 브라우저 자체 창 제어(window.resizeTo / moveTo) 즉시 실행 + Win32 SetWindowPos 병행 호출
+    resizeNativeAppWindow(targetW, targetH, targetX, targetY);
+    try {
+      await apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
+    // 2. 120ms 후 창 크기가 복원되지 않았을 경우 재시도 보장 및 대시보드 레이아웃/차트 재정렬
+    setTimeout(() => {
+      if (!isMiniHudMode && (window.outerWidth < 850 || window.outerHeight < 520)) {
+        resizeNativeAppWindow(targetW, targetH, targetX, targetY);
+        apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}`, { method: 'POST' }).catch(() => {});
+      }
+      applyUiPrefs(false);
+      applyDashboardViewMode();
+      if (lastStatsData) {
+        fetchStats();
+      }
+    }, 120);
+    applyUiPrefs(false);
+    applyDashboardViewMode();
     syncMiniHudState(false);
   }
 
   async function toggleMiniHudTopmost() {
     miniHudTopmost = !miniHudTopmost;
+    if (typeof uiPrefs !== 'undefined' && uiPrefs) {
+      uiPrefs.hudTopmost = miniHudTopmost;
+      saveUiPrefs();
+      applyUiPrefs(false);
+    }
     updateMiniHudControlsUI();
     try {
       await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}`, { method: 'POST' });
@@ -9305,14 +9884,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   async function toggleMiniHudLayout() {
     miniHudWideLayout = !miniHudWideLayout;
+    if (typeof uiPrefs !== 'undefined' && uiPrefs) {
+      uiPrefs.hudLayoutWide = miniHudWideLayout;
+      saveUiPrefs();
+    }
     const overlay = document.getElementById('mini-hud-overlay');
     if (overlay) overlay.classList.toggle('layout-wide', miniHudWideLayout);
     updateMiniHudControlsUI();
+    applyUiPrefs(false);
 
-    const targetW = miniHudWideLayout ? 760 : 450;
-    const targetH = miniHudWideLayout ? 168 : 265;
+    const target = getMiniHudTargetSize();
+    if (isMiniHudMode) {
+      resizeNativeAppWindow(target.w, target.h);
+    }
     try {
-      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetW}&h=${targetH}`, { method: 'POST' });
+      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -10102,12 +10688,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   function openAlertSettings() {
     closeDetailView();
     closeRecordAnalysis();
+    closeUiSettingsModal();
     closeHelpModal();
     syncAlertInputsFromConfig();
     renderAlertSettingsUI();
     const overlay = document.getElementById('alert-overlay');
     if (overlay) overlay.classList.remove('hidden');
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === 'alerts');
@@ -10119,7 +10706,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const overlay = document.getElementById('alert-overlay');
     if (overlay && !overlay.classList.contains('hidden')) {
       overlay.classList.add('hidden');
-      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
         const ch = document.getElementById('chan-' + t);
         const rl = document.getElementById('rail-' + t);
         if (ch) ch.classList.toggle('active', t === activeMainTab);
@@ -10590,10 +11177,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   function openRecordAnalysis() {
     closeDetailView();
+    closeUiSettingsModal();
     closeHelpModal();
     const overlay = document.getElementById('record-overlay');
     overlay.classList.remove('hidden');
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === 'analysis');
@@ -10605,7 +11193,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   function closeRecordAnalysis() {
     const overlay = document.getElementById('record-overlay');
     if (overlay) overlay.classList.add('hidden');
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === activeMainTab);
@@ -11025,6 +11613,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   function openDetailView(type) {
     closeUpdateModal();
+    closeUiSettingsModal();
     closeHelpModal();
     activeDetailType = type;
     const overlay = document.getElementById('detail-overlay');
@@ -11464,9 +12053,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeAlertSettings();
     closeGameScanModal();
     closeUpdateModal();
+    closeUiSettingsModal();
     const overlay = document.getElementById('help-overlay');
     if (overlay) overlay.classList.remove('hidden');
-    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
       const ch = document.getElementById('chan-' + t);
       const rl = document.getElementById('rail-' + t);
       if (ch) ch.classList.toggle('active', t === 'help');
@@ -11478,13 +12068,405 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const overlay = document.getElementById('help-overlay');
     if (overlay && !overlay.classList.contains('hidden')) {
       overlay.classList.add('hidden');
-      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'help'].forEach(t => {
+      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
         const ch = document.getElementById('chan-' + t);
         const rl = document.getElementById('rail-' + t);
         if (ch) ch.classList.toggle('active', t === activeMainTab);
         if (rl) rl.classList.toggle('active', t === activeMainTab);
       });
     }
+  }
+
+  // ==================== 화면 & 미니 HUD 맞춤 설정 (하드웨어 모니터링 항목 선택 & HUD 모양 설정) ====================
+  const DEFAULT_UI_PREFS = {
+    dashCpu: true,
+    dashRam: true,
+    dashGpu: true,
+    dashFps: true,
+    dashNetDisk: true,
+    dashProcs: true,
+    dashPomo: true,
+    dashProcesses: true,
+    dashProductivity: true,
+    hudLayoutWide: false,
+    hudTopmost: true,
+    hudFps: true,
+    hudCpu: true,
+    hudGpu: true,
+    hudRam: true,
+    hudNet: true,
+    hudTimer: true
+  };
+
+  function normalizeUiPrefsObj(obj) {
+    const res = Object.assign({}, DEFAULT_UI_PREFS, obj || {});
+    if (obj && typeof obj.dashProcs === 'boolean') {
+      res.dashProcs = obj.dashProcs;
+      res.dashProcesses = obj.dashProcs;
+    } else if (obj && typeof obj.dashProcesses === 'boolean') {
+      res.dashProcs = obj.dashProcesses;
+      res.dashProcesses = obj.dashProcesses;
+    }
+    if (obj && typeof obj.dashPomo === 'boolean') {
+      res.dashPomo = obj.dashPomo;
+      res.dashProductivity = obj.dashPomo;
+    } else if (obj && typeof obj.dashProductivity === 'boolean') {
+      res.dashPomo = obj.dashProductivity;
+      res.dashProductivity = obj.dashProductivity;
+    }
+    return res;
+  }
+
+  const INITIAL_UI_PREFS_DATA = /*__COREFLOW_INITIAL_UI_PREFS__*/null;
+  let uiPrefs = (function() {
+    let localSaved = {};
+    try {
+      const raw = localStorage.getItem('coreflow_ui_prefs');
+      if (raw) localSaved = JSON.parse(raw) || {};
+    } catch (e) {}
+    return normalizeUiPrefsObj(Object.assign(
+      {},
+      DEFAULT_UI_PREFS,
+      localSaved,
+      (INITIAL_UI_PREFS_DATA && typeof INITIAL_UI_PREFS_DATA === 'object') ? INITIAL_UI_PREFS_DATA : {}
+    ));
+  })();
+
+  function saveUiPrefs() {
+    uiPrefs = normalizeUiPrefsObj(uiPrefs);
+    try {
+      localStorage.setItem('coreflow_ui_prefs', JSON.stringify(uiPrefs));
+    } catch (e) {}
+    apiFetch('/api/ui_prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(uiPrefs)
+    }).catch(() => {});
+  }
+
+  async function applyUiPrefs(resizeMiniIfActive = false) {
+    if (!uiPrefs) return;
+    uiPrefs = normalizeUiPrefsObj(uiPrefs);
+
+    // 1. 미니 HUD 레이아웃 형태(박스형 vs 가로바형) 및 항상 위 고정 동기화
+    miniHudWideLayout = Boolean(uiPrefs.hudLayoutWide);
+    miniHudTopmost = uiPrefs.hudTopmost !== false;
+    const mhOverlay = document.getElementById('mini-hud-overlay');
+    if (mhOverlay) {
+      mhOverlay.classList.toggle('layout-wide', miniHudWideLayout);
+    }
+    updateMiniHudControlsUI();
+
+    // 2. 메인 대시보드(통합-대시보드 탭일 때) 카드 표시/숨김 및 그리드 자동 확장
+    const topCards = [
+      { key: 'dashCpu', id: 'card-metric-cpu' },
+      { key: 'dashRam', id: 'card-metric-mem' },
+      { key: 'dashGpu', id: 'card-metric-gpu' },
+      { key: 'dashFps', id: 'card-metric-fps' }
+    ];
+    let visibleTopCount = 0;
+    topCards.forEach(item => {
+      const on = uiPrefs[item.key] !== false;
+      if (on) visibleTopCount++;
+      const el = document.getElementById(item.id);
+      if (el && activeMainTab === 'overview') {
+        el.classList.toggle('hidden', !on);
+      }
+    });
+
+    const secMetrics = document.getElementById('sec-metrics');
+    if (secMetrics && activeMainTab === 'overview') {
+      if (visibleTopCount === 0) {
+        secMetrics.classList.add('hidden');
+      } else {
+        secMetrics.classList.remove('hidden');
+        secMetrics.style.gridTemplateColumns = `repeat(${visibleTopCount}, minmax(0, 1fr))`;
+      }
+    }
+
+    const secNetdiskStrip = document.getElementById('sec-netdisk-strip');
+    if (secNetdiskStrip && activeMainTab === 'overview') {
+      secNetdiskStrip.classList.toggle('hidden', uiPrefs.dashNetDisk === false);
+    }
+
+    const secBottom = document.getElementById('sec-bottom');
+    const cardProc = document.getElementById('card-processes');
+    const cardProd = document.getElementById('card-productivity');
+    const showProc = uiPrefs.dashProcs !== false;
+    const showProd = uiPrefs.dashPomo !== false;
+    if (activeMainTab === 'overview' && secBottom && cardProc && cardProd) {
+      cardProc.classList.toggle('hidden', !showProc);
+      cardProd.classList.toggle('hidden', !showProd);
+      if (!showProc && !showProd) {
+        secBottom.classList.add('hidden');
+      } else {
+        secBottom.classList.remove('hidden');
+        if (showProc && showProd) {
+          secBottom.style.gridTemplateColumns = 'minmax(0, 1.35fr) minmax(0, 1fr)';
+        } else {
+          secBottom.style.gridTemplateColumns = 'minmax(0, 1fr)';
+        }
+      }
+    }
+
+    // 3. 미니 HUD 내부 타일 표시/숨김 및 그리드 칸 수 자동 조절
+    const hudTiles = [
+      { key: 'hudFps', id: 'mh-tile-fps', label: '🎮 게임 FPS', sample: '144 FPS', color: 'var(--neon-green)' },
+      { key: 'hudCpu', id: 'mh-tile-cpu', label: '⚡ CPU 부하', sample: '24.5%', color: 'var(--brand)' },
+      { key: 'hudGpu', id: 'mh-tile-gpu', label: '🎛️ GPU·온도', sample: '62% · 61°C', color: 'var(--orange)' },
+      { key: 'hudRam', id: 'mh-tile-ram', label: '💾 시스템 RAM', sample: '48.2%', color: 'var(--purple)' },
+      { key: 'hudNet', id: 'mh-tile-net', label: '🌐 핑·네트워크', sample: '9.2 ms', color: 'var(--cyan)' },
+      { key: 'hudTimer', id: 'mh-tile-timer', label: '⏱️ 플레이타임', sample: '01:24:10', color: 'var(--yellow)' }
+    ];
+    const activeHudTiles = [];
+    hudTiles.forEach(t => {
+      const on = uiPrefs[t.key] !== false;
+      if (on) activeHudTiles.push(t);
+      const tileEl = document.getElementById(t.id);
+      if (tileEl) {
+        tileEl.classList.toggle('hidden', !on);
+      }
+    });
+
+    const mhGrid = document.getElementById('mini-hud-grid');
+    const targetSize = getMiniHudTargetSize();
+    if (mhGrid) {
+      mhGrid.style.gridTemplateColumns = `repeat(${targetSize.cols}, minmax(0, 1fr))`;
+      mhGrid.style.gridTemplateRows = `repeat(${targetSize.rows}, minmax(0, 1fr))`;
+    }
+
+    // 4. 설정 모달 UI 토글 카드 & 배지 상태 동기화
+    const allToggleKeys = [
+      'dashCpu', 'dashRam', 'dashGpu', 'dashFps', 'dashNetDisk', 'dashProcs', 'dashPomo',
+      'hudTopmost', 'hudFps', 'hudCpu', 'hudGpu', 'hudRam', 'hudNet', 'hudTimer'
+    ];
+    allToggleKeys.forEach(k => {
+      const on = uiPrefs[k] !== false;
+      const cardEl = document.getElementById('uicard-' + k);
+      const pillEl = document.getElementById('uipill-' + k);
+      if (cardEl) cardEl.classList.toggle('active', on);
+      if (pillEl) {
+        pillEl.textContent = on ? 'ON' : 'OFF';
+        pillEl.classList.toggle('on', on);
+      }
+    });
+
+    const dashCount = ['dashCpu', 'dashRam', 'dashGpu', 'dashFps', 'dashNetDisk', 'dashProcs', 'dashPomo']
+      .filter(k => uiPrefs[k] !== false).length;
+    const dashCountBadge = document.getElementById('ui-dash-count-badge');
+    if (dashCountBadge) dashCountBadge.textContent = `${dashCount} / 7개 표시 중`;
+
+    const hudCount = activeHudTiles.length;
+    const hudCountBadge = document.getElementById('ui-hud-count-badge');
+    if (hudCountBadge) hudCountBadge.textContent = `${hudCount}개 타일 활성`;
+
+    // 5. 컴팩트 박스형 vs 슬림 가로 바형 포커스(.selected) 및 배지 완벽 동기화
+    const styleBoxCard = document.getElementById('hudstyle-box');
+    const styleBarCard = document.getElementById('hudstyle-bar');
+    const styleBoxBadge = document.getElementById('hudstyle-box-badge');
+    const styleBarBadge = document.getElementById('hudstyle-bar-badge');
+    const previewMeta = document.getElementById('ui-hud-preview-meta');
+
+    if (styleBoxCard) {
+      styleBoxCard.classList.toggle('selected', !miniHudWideLayout);
+      styleBoxCard.classList.toggle('active', !miniHudWideLayout);
+    }
+    if (styleBarCard) {
+      styleBarCard.classList.toggle('selected', miniHudWideLayout);
+      styleBarCard.classList.toggle('active', miniHudWideLayout);
+    }
+    if (styleBoxBadge) {
+      styleBoxBadge.textContent = !miniHudWideLayout ? '선택됨 ✓' : '클릭하여 선택';
+      styleBoxBadge.style.background = !miniHudWideLayout ? 'var(--brand)' : '';
+      styleBoxBadge.style.color = !miniHudWideLayout ? '#fff' : '';
+    }
+    if (styleBarBadge) {
+      styleBarBadge.textContent = miniHudWideLayout ? '선택됨 ✓' : '클릭하여 선택';
+      styleBarBadge.style.background = miniHudWideLayout ? 'var(--brand)' : '';
+      styleBarBadge.style.color = miniHudWideLayout ? '#fff' : '';
+    }
+    if (previewMeta) {
+      previewMeta.textContent = miniHudWideLayout
+        ? `📏 슬림 가로 바형 (${targetSize.cols}열 × 1줄 · 약 ${targetSize.w}×${targetSize.h}px)`
+        : `📦 컴팩트 박스형 (${targetSize.cols}열 × ${targetSize.rows}단 · 약 ${targetSize.w}×${targetSize.h}px)`;
+    }
+
+    const previewEl = document.getElementById('ui-hud-live-preview');
+    if (previewEl) {
+      previewEl.style.gridTemplateColumns = `repeat(${targetSize.cols}, minmax(0, 1fr))`;
+      previewEl.innerHTML = activeHudTiles.map(t => `
+        <div style="padding: 6px 8px; border-radius: 6px; background: rgba(var(--brand-rgb), 0.10); border: 1px solid rgba(var(--brand-rgb), 0.32); display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+          <span style="font-size: 10.5px; font-weight: 700; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${t.label}</span>
+          <strong style="font-size: 12px; color: ${t.color}; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${t.sample}</strong>
+        </div>
+      `).join('');
+    }
+
+    if (resizeMiniIfActive && isMiniHudMode) {
+      resizeNativeAppWindow(targetSize.w, targetSize.h);
+      try {
+        await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetSize.w}&h=${targetSize.h}`, { method: 'POST' });
+      } catch (e) {}
+      syncMiniHudState(true);
+    }
+  }
+
+  function toggleUiPref(key) {
+    if (!uiPrefs) return;
+    const hudKeys = ['hudFps', 'hudCpu', 'hudGpu', 'hudRam', 'hudNet', 'hudTimer'];
+    const dashTopKeys = ['dashCpu', 'dashRam', 'dashGpu', 'dashFps', 'dashNetDisk', 'dashProcs', 'dashPomo'];
+
+    const normalizedKey = (key === 'dashProcesses') ? 'dashProcs' : ((key === 'dashProductivity') ? 'dashPomo' : key);
+
+    // 최소 1개 항목은 켜져 있도록 보호
+    if (hudKeys.includes(normalizedKey) && uiPrefs[normalizedKey] !== false) {
+      const remaining = hudKeys.filter(k => k !== normalizedKey && uiPrefs[k] !== false).length;
+      if (remaining === 0) {
+        showToast('⚠️ 미니 HUD에는 최소 1개 이상의 모니터링 항목이 표시되어야 합니다.');
+        return;
+      }
+    }
+    if (dashTopKeys.includes(normalizedKey) && uiPrefs[normalizedKey] !== false) {
+      const remaining = dashTopKeys.filter(k => k !== normalizedKey && uiPrefs[k] !== false).length;
+      if (remaining === 0) {
+        showToast('⚠️ 메인 대시보드에는 최소 1개 이상의 패널이 표시되어야 합니다.');
+        return;
+      }
+    }
+
+    const nextVal = !(uiPrefs[normalizedKey] !== false);
+    uiPrefs[normalizedKey] = nextVal;
+    if (normalizedKey === 'dashProcs') uiPrefs.dashProcesses = nextVal;
+    if (normalizedKey === 'dashPomo') uiPrefs.dashProductivity = nextVal;
+
+    saveUiPrefs();
+    applyUiPrefs(true);
+  }
+
+  function setMiniHudStylePref(isWide) {
+    if (!uiPrefs) return;
+    const wideBool = (isWide === 'bar' || isWide === true || isWide === 1);
+    uiPrefs.hudLayoutWide = wideBool;
+    miniHudWideLayout = wideBool;
+    saveUiPrefs();
+    applyUiPrefs(true);
+    syncMiniHudState(isMiniHudMode);
+    showToast(wideBool
+      ? '📏 미니 HUD 모양이 [슬림 가로 바형 (1줄)]으로 설정되었습니다.'
+      : '📦 미니 HUD 모양이 [컴팩트 박스형 (2줄)]으로 설정되었습니다.');
+  }
+
+  function applyUiPreset(preset) {
+    if (preset === 'all') {
+      uiPrefs = normalizeUiPrefsObj(Object.assign({}, DEFAULT_UI_PREFS, {
+        hudLayoutWide: uiPrefs.hudLayoutWide,
+        hudTopmost: uiPrefs.hudTopmost
+      }));
+      showToast('✨ [전체 다 보기] 프리셋이 적용되었습니다.');
+    } else if (preset === 'gamer') {
+      uiPrefs = normalizeUiPrefsObj(Object.assign({}, uiPrefs, {
+        dashCpu: true,
+        dashRam: false,
+        dashGpu: true,
+        dashFps: true,
+        dashNetDisk: true,
+        dashProcs: false,
+        dashPomo: false,
+        hudLayoutWide: true,
+        hudFps: true,
+        hudCpu: true,
+        hudGpu: true,
+        hudRam: false,
+        hudNet: true,
+        hudTimer: false
+      }));
+      showToast('🎮 [게이머 핵심 (FPS·GPU·CPU·핑 + 가로바 HUD)] 프리셋이 적용되었습니다.');
+    } else if (preset === 'minimal') {
+      uiPrefs = normalizeUiPrefsObj(Object.assign({}, uiPrefs, {
+        dashCpu: true,
+        dashRam: false,
+        dashGpu: true,
+        dashFps: true,
+        dashNetDisk: false,
+        dashProcs: false,
+        dashPomo: false,
+        hudLayoutWide: true,
+        hudFps: true,
+        hudCpu: true,
+        hudGpu: true,
+        hudRam: false,
+        hudNet: false,
+        hudTimer: false
+      }));
+      showToast('⚡ [초경량 미니멀 (CPU·GPU·FPS 3대 핵심)] 프리셋이 적용되었습니다.');
+    } else if (preset === 'work') {
+      uiPrefs = normalizeUiPrefsObj(Object.assign({}, uiPrefs, {
+        dashCpu: true,
+        dashRam: true,
+        dashGpu: false,
+        dashFps: false,
+        dashNetDisk: true,
+        dashProcs: true,
+        dashPomo: true,
+        hudLayoutWide: false,
+        hudFps: false,
+        hudCpu: true,
+        hudGpu: false,
+        hudRam: true,
+        hudNet: true,
+        hudTimer: true
+      }));
+      showToast('💼 [작업·업무 집중 (CPU·RAM·프로세스·할 일 보드)] 프리셋이 적용되었습니다.');
+    }
+    saveUiPrefs();
+    applyUiPrefs(true);
+    syncMiniHudState(isMiniHudMode);
+  }
+
+  function resetUiPrefs() {
+    uiPrefs = normalizeUiPrefsObj(DEFAULT_UI_PREFS);
+    saveUiPrefs();
+    applyUiPrefs(true);
+    syncMiniHudState(isMiniHudMode);
+    showToast('🔄 화면 및 미니 HUD 맞춤 설정이 기본값으로 초기화되었습니다.');
+  }
+
+  function openUiSettingsModal() {
+    closeDetailView();
+    closeRecordAnalysis();
+    closeAlertSettings();
+    closeGameScanModal();
+    closeUpdateModal();
+    closeHelpModal();
+    applyUiPrefs(false);
+    const overlay = document.getElementById('uisettings-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
+      const ch = document.getElementById('chan-' + t);
+      const rl = document.getElementById('rail-' + t);
+      if (ch) ch.classList.toggle('active', t === 'uisettings');
+      if (rl) rl.classList.toggle('active', t === 'uisettings');
+    });
+  }
+
+  function closeUiSettingsModal() {
+    const overlay = document.getElementById('uisettings-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+      overlay.classList.add('hidden');
+      ['overview', 'system', 'netdisk', 'gamelog', 'productivity', 'analysis', 'alerts', 'uisettings', 'help'].forEach(t => {
+        const ch = document.getElementById('chan-' + t);
+        const rl = document.getElementById('rail-' + t);
+        if (ch) ch.classList.toggle('active', t === activeMainTab);
+        if (rl) rl.classList.toggle('active', t === activeMainTab);
+      });
+    }
+  }
+
+  async function openUiSettingsFromMiniHud() {
+    if (isMiniHudMode) {
+      await exitMiniHudMode();
+    }
+    openUiSettingsModal();
   }
 
   // ==================== GitHub Releases 기반 자동 업데이트 ====================
@@ -11495,6 +12477,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     closeRecordAnalysis();
     closeAlertSettings();
     closeGameScanModal();
+    closeUiSettingsModal();
     closeHelpModal();
     const overlay = document.getElementById('update-overlay');
     if (overlay) overlay.classList.remove('hidden');
@@ -11666,6 +12649,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   applyWindowsTheme(lastWinTheme);
   renderTodos();
   updatePomoUI();
+  applyUiPrefs(false);
   initMiniHudModeFromSaved();
   applyDashboardViewMode();
   fetchStats();

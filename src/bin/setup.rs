@@ -524,6 +524,7 @@ fn migrate_user_data(target_dir: &Path) -> usize {
     let config_files = [
         "coreflow_todos.json",
         "coreflow_alerts.json",
+        "coreflow_ui_prefs.json",
         "coreflow_custom_games.json",
         "coreflow_minihud_state.json",
         "rustcord_theme_pref.cfg",
@@ -799,6 +800,7 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         for f in &[
             "coreflow_todos.json",
             "coreflow_alerts.json",
+            "coreflow_ui_prefs.json",
             "coreflow_custom_games.json",
             "coreflow_minihud_state.json",
             "rustcord_theme_pref.cfg",
