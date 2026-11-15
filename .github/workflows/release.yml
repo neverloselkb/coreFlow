@@ -44,27 +44,34 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin x86_64-apple-darwin
+          targets: x86_64-apple-darwin
 
-      - name: Build Apple Silicon (aarch64)
+      - name: Build Apple Silicon (Native)
         run: |
-          if ! cargo build --release --target aarch64-apple-darwin --bin CoreFlow 2> build_err.txt; then
+          if ! cargo build --release --bin CoreFlow 2> build_err.txt; then
             cat build_err.txt
-            head -n 20 build_err.txt | while IFS= read -r line; do
+            tail -n 30 build_err.txt | while IFS= read -r line; do
               echo "::error::$line"
             done
             exit 1
           fi
 
       - name: Build Intel Mac (x86_64)
-        run: cargo build --release --target x86_64-apple-darwin --bin CoreFlow
+        run: |
+          if ! cargo build --release --target x86_64-apple-darwin --bin CoreFlow 2> build_err_x86.txt; then
+            cat build_err_x86.txt
+            tail -n 30 build_err_x86.txt | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
 
       - name: Assemble Universal Binary & macOS App Bundle
         run: |
           mkdir -p CoreFlow.app/Contents/MacOS
           mkdir -p CoreFlow.app/Contents/Resources
           lipo -create \
-            target/aarch64-apple-darwin/release/CoreFlow \
+            target/release/CoreFlow \
             target/x86_64-apple-darwin/release/CoreFlow \
             -output CoreFlow.app/Contents/MacOS/CoreFlow
           chmod +x CoreFlow.app/Contents/MacOS/CoreFlow
