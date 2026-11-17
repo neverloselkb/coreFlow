@@ -6,7 +6,7 @@
 
 [![Language](https://img.shields.io/badge/Language-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20(Universal)-0078D6?logo=apple)](https://github.com/neverloselkb/coreFlow/releases)
-[![Version](https://img.shields.io/badge/Release-v1.0.5-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.6-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
 [![License](https://img.shields.io/badge/License-MIT-green)](#)
 
 </div>
