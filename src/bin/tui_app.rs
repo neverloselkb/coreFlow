@@ -7466,6 +7466,14 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
       </div>
 
+      <!-- 상단 하드웨어 핵심 지표 가이드 헤더 -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin: 6px 4px 8px; font-size: 12px; color: var(--text-muted);">
+        <span style="font-weight: 700; color: var(--text-normal); font-size: 12.5px;">⚡ 실시간 핵심 모니터링</span>
+        <span style="display: inline-flex; align-items: center; gap: 4px; opacity: 0.85; font-size: 11.5px;">
+          <span>💡</span> 카드를 더블클릭하면 부품별 정밀 상세 모니터링이 열립니다
+        </span>
+      </div>
+
       <!-- 상단 4열 하드웨어 & 게이밍 요약 그리드 (CPU / RAM / GPU / FPS) -->
       <section class="grid-4" id="sec-metrics">
         <!-- 1. CPU 카드 -->
@@ -7476,7 +7484,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
             <div class="metric-big" id="cpu-percent" style="color: var(--brand);">0.0%</div>
-            <div class="metric-sub">더블클릭 상세 ⤢</div>
           </div>
           <div class="progress-track">
             <div class="progress-fill" id="cpu-bar" style="width: 0%; background: var(--brand);"></div>
@@ -7555,12 +7562,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 3. GPU (NVIDIA RTX) 카드 -->
         <div class="card zoom-card" id="card-metric-gpu" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 전체 화면 상세 모니터링 열기">
           <div class="card-header">
-            <div class="card-title">🎛️ GPU & VRAM</div>
+            <div class="card-title">🎛️ GPU</div>
             <span class="metric-sub" id="gpu-vram-detail">VRAM 0 / 0 GB</span>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
             <div class="metric-big" id="gpu-percent" style="color: var(--orange);">0.0%</div>
-            <div class="metric-sub">더블클릭 상세 ⤢</div>
           </div>
           <div class="progress-track" title="GPU 점유율">
             <div class="progress-fill" id="gpu-bar" style="width: 0%; background: linear-gradient(90deg, #ff7b00, #e53935);"></div>
@@ -10723,19 +10729,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const box = document.getElementById('error-fallback-detail-box');
     if (btn) {
       btn.disabled = true;
-      btn.textContent = '🔄 재시작 진행 중...';
+      btn.textContent = '🔄 새 창 실행 중...';
     }
     if (box) {
-      box.textContent = 'CoreFlow 엔진을 다시 시작하고 있습니다. 잠시 후 창이 자동으로 갱신됩니다...';
+      box.textContent = '새로운 CoreFlow 창을 실행하고 있습니다. 이전 창은 잠시 후 자동으로 닫힙니다...';
     }
     try {
       await apiFetch('/api/restart_app', { method: 'POST' });
     } catch (e) {
-      console.warn('Restart trigger sent, waiting for reload...', e);
+      console.warn('Backend offline, closing window...', e);
     }
     setTimeout(() => {
-      location.reload();
-    }, 2200);
+      window.open('', '_self').close();
+      window.close();
+    }, 800);
   }
 
   function openHelpFromError() {
