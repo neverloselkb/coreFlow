@@ -102,6 +102,9 @@ extern "system" {
     fn DestroyIcon(hIcon: isize) -> i32;
     fn GetDC(hWnd: isize) -> isize;
     fn ReleaseDC(hWnd: isize, hDC: isize) -> i32;
+    fn GetWindowLongW(hWnd: isize, nIndex: i32) -> i32;
+    fn SetWindowLongW(hWnd: isize, nIndex: i32, dwNewLong: i32) -> i32;
+    fn SetLayeredWindowAttributes(hWnd: isize, crKey: u32, bAlpha: u8, dwFlags: u32) -> i32;
 }
 
 #[cfg(target_os = "windows")]
@@ -3933,6 +3936,7 @@ struct MiniHudState {
     is_mini: bool,
     wide: bool,
     topmost: bool,
+    opacity: i32,
     mini_x: i32,
     mini_y: i32,
     mini_w: i32,
@@ -3949,6 +3953,7 @@ impl Default for MiniHudState {
             is_mini: false,
             wide: false,
             topmost: true,
+            opacity: 100,
             mini_x: 0,
             mini_y: 0,
             mini_w: 450,
@@ -3980,6 +3985,7 @@ fn load_minihud_state() -> MiniHudState {
                 "is_mini" => state.is_mini = val == "true" || val == "1",
                 "wide" => state.wide = val == "true" || val == "1",
                 "topmost" => state.topmost = val != "false" && val != "0",
+                "opacity" => if let Ok(n) = val.parse::<i32>() { if (20..=100).contains(&n) { state.opacity = n; } },
                 "mini_x" => if let Ok(n) = val.parse::<i32>() { state.mini_x = n; },
                 "mini_y" => if let Ok(n) = val.parse::<i32>() { state.mini_y = n; },
                 "mini_w" => if let Ok(n) = val.parse::<i32>() { if n >= 200 { state.mini_w = n; } },
@@ -3999,9 +4005,10 @@ fn load_minihud_state() -> MiniHudState {
 fn save_minihud_state(s: &MiniHudState) {
     let nw = if s.normal_w >= 900 { s.normal_w } else { 1360 };
     let nh = if s.normal_h >= 550 { s.normal_h } else { 880 };
+    let op = s.opacity.clamp(20, 100);
     let json = format!(
-        "{{\n  \"is_mini\": {},\n  \"wide\": {},\n  \"topmost\": {},\n  \"mini_x\": {},\n  \"mini_y\": {},\n  \"mini_w\": {},\n  \"mini_h\": {},\n  \"normal_x\": {},\n  \"normal_y\": {},\n  \"normal_w\": {},\n  \"normal_h\": {}\n}}",
-        s.is_mini, s.wide, s.topmost, s.mini_x, s.mini_y, s.mini_w, s.mini_h,
+        "{{\n  \"is_mini\": {},\n  \"wide\": {},\n  \"topmost\": {},\n  \"opacity\": {},\n  \"mini_x\": {},\n  \"mini_y\": {},\n  \"mini_w\": {},\n  \"mini_h\": {},\n  \"normal_x\": {},\n  \"normal_y\": {},\n  \"normal_w\": {},\n  \"normal_h\": {}\n}}",
+        s.is_mini, s.wide, s.topmost, op, s.mini_x, s.mini_y, s.mini_w, s.mini_h,
         s.normal_x, s.normal_y, nw, nh
     );
     let _ = write_persistent_config("coreflow_minihud_state.json", json.as_bytes());
@@ -4222,6 +4229,7 @@ fn spawn_window_icon_applier() {
                         if mini_state.mini_x > -10000 && mini_state.mini_y > -10000 && (mini_state.mini_x != 0 || mini_state.mini_y != 0) { Some(mini_state.mini_y) } else { None },
                         Some(w),
                         Some(h),
+                        Some(mini_state.opacity),
                     );
                 }
                 break;
@@ -4237,7 +4245,7 @@ fn parse_query_i32(first_line: &str, key: &str) -> Option<i32> {
     parse_query_str(first_line, key)?.parse::<i32>().ok()
 }
 
-/// 컴팩트 미니 HUD 전환 시 Win32 SetWindowPos로 창 항상 위(Topmost) 고정 및 창 크기/위치를 즉시 제어
+/// 컴팩트 미니 HUD 전환 시 Win32 SetWindowPos로 창 항상 위(Topmost) 고정, 크기/위치 및 SetLayeredWindowAttributes 창 투명도 제어
 #[cfg(target_os = "windows")]
 fn control_app_window(
     topmost: Option<bool>,
@@ -4245,6 +4253,7 @@ fn control_app_window(
     y: Option<i32>,
     w: Option<i32>,
     h: Option<i32>,
+    opacity: Option<i32>,
 ) -> bool {
     const HWND_TOPMOST: isize = -1;
     const HWND_NOTOPMOST: isize = -2;
@@ -4253,10 +4262,31 @@ fn control_app_window(
     const SWP_NOZORDER: u32 = 0x0004;
     const SWP_SHOWWINDOW: u32 = 0x0040;
     const SW_RESTORE: i32 = 9;
+    const GWL_EXSTYLE: i32 = -20;
+    const WS_EX_LAYERED: i32 = 0x0008_0000;
+    const LWA_ALPHA: u32 = 0x0000_0002;
 
     let hwnd = find_app_window();
     if hwnd == 0 {
         return false;
+    }
+
+    if let Some(op) = opacity {
+        unsafe {
+            if op >= 100 {
+                let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                if (ex & WS_EX_LAYERED) != 0 {
+                    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+                }
+            } else if (20..=99).contains(&op) {
+                let alpha = ((op as f32 / 100.0) * 255.0).round().clamp(40.0, 255.0) as u8;
+                let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                if (ex & WS_EX_LAYERED) == 0 {
+                    SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+                }
+                SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+            }
+        }
     }
 
     if w.is_some() && h.is_some() {
@@ -4303,6 +4333,7 @@ fn control_app_window(
     _y: Option<i32>,
     _w: Option<i32>,
     _h: Option<i32>,
+    _opacity: Option<i32>,
 ) -> bool {
     true
 }
@@ -4714,7 +4745,8 @@ fn handle_client(
         let y = parse_query_i32(&first_line, "y");
         let w = parse_query_i32(&first_line, "w");
         let h = parse_query_i32(&first_line, "h");
-        let ok = control_app_window(topmost, x, y, w, h);
+        let opacity = parse_query_i32(&first_line, "opacity");
+        let ok = control_app_window(topmost, x, y, w, h, opacity);
         let body = if ok { r#"{"ok":true}"# } else { r#"{"ok":false}"# };
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -4726,10 +4758,12 @@ fn handle_client(
         let is_mini = parse_query_str(&first_line, "mini").map(|v| v == "1" || v == "true").unwrap_or(false);
         let wide = parse_query_str(&first_line, "wide").map(|v| v == "1" || v == "true").unwrap_or(false);
         let topmost = parse_query_str(&first_line, "topmost").map(|v| v != "0" && v != "false").unwrap_or(true);
+        let opacity = parse_query_i32(&first_line, "opacity");
         let mut ms = load_minihud_state();
         ms.is_mini = is_mini;
         ms.wide = wide;
         ms.topmost = topmost;
+        if let Some(op) = opacity { if (20..=100).contains(&op) { ms.opacity = op; } }
         if let Some(mx) = parse_query_i32(&first_line, "mx") { ms.mini_x = mx; }
         if let Some(my) = parse_query_i32(&first_line, "my") { ms.mini_y = my; }
         if let Some(mw) = parse_query_i32(&first_line, "mw") { if mw >= 200 { ms.mini_w = mw; } }
@@ -4744,8 +4778,8 @@ fn handle_client(
     } else if first_line.starts_with("GET /api/minihud_state") {
         let ms = load_minihud_state();
         let body = format!(
-            "{{\"ok\":true,\"is_mini\":{},\"wide\":{},\"topmost\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
-            ms.is_mini, ms.wide, ms.topmost, ms.mini_x, ms.mini_y, ms.mini_w, ms.mini_h,
+            "{{\"ok\":true,\"is_mini\":{},\"wide\":{},\"topmost\":{},\"opacity\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
+            ms.is_mini, ms.wide, ms.topmost, ms.opacity.clamp(20, 100), ms.mini_x, ms.mini_y, ms.mini_w, ms.mini_h,
             ms.normal_x, ms.normal_y, ms.normal_w, ms.normal_h
         );
         let resp = format!(
@@ -5073,8 +5107,8 @@ fn handle_client(
         let saved_ui_prefs = load_ui_prefs_json();
         let ms = load_minihud_state();
         let saved_minihud = format!(
-            "{{\"is_mini\":{},\"wide\":{},\"topmost\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
-            ms.is_mini, ms.wide, ms.topmost, ms.mini_x, ms.mini_y, ms.mini_w, ms.mini_h,
+            "{{\"is_mini\":{},\"wide\":{},\"topmost\":{},\"opacity\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
+            ms.is_mini, ms.wide, ms.topmost, ms.opacity.clamp(20, 100), ms.mini_x, ms.mini_y, ms.mini_w, ms.mini_h,
             ms.normal_x, ms.normal_y, ms.normal_w, ms.normal_h
         );
         let body = INDEX_HTML
@@ -8374,6 +8408,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <span id="mh-game-badge" class="badge" style="font-size:10px; padding:2px 6px; overflow:hidden; text-overflow:ellipsis;">IDLE 대기</span>
       </div>
       <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+        <button id="mh-opacity-btn" class="mini-btn" onclick="cycleMiniHudOpacity()" title="미니 HUD 창 투명도를 조절합니다 (100% ➔ 80% ➔ 60% ➔ 40%)">👻 100%</button>
         <button id="mh-topmost-btn" class="mini-btn active" onclick="toggleMiniHudTopmost()" title="다른 창이나 창모드 게임 위에 항상 고정(Topmost)할지 선택합니다">📌 항상 위 ON</button>
         <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="컴팩트 2단 박스형과 슬림 1줄 가로 바형 레이아웃을 즉시 전환합니다">📐 가로바 전환</button>
         <button class="mini-btn" onclick="openUiSettingsFromMiniHud()" title="표시할 하드웨어 항목 선택 및 박스형/가로바 레이아웃 설정 화면 열기">⚙️ 설정</button>
@@ -8627,6 +8662,30 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임이나 인터넷 창을 클릭해도 미니 HUD가 뒤로 가려지지 않고 항상 맨 위에 보이도록 고정합니다</div>
             </div>
             <span class="switch-pill on" id="uipill-hudTopmost">ON</span>
+          </div>
+
+          <!-- 미니 HUD 창 투명도(불투명도) 조절 옵션 -->
+          <div class="card" style="padding: 12px 14px; gap: 8px; background: rgba(var(--brand-rgb), 0.05); border: 1px solid rgba(var(--brand-rgb), 0.2);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">👻 미니 HUD 창 투명도 (배경 투과율)</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임을 가리지 않도록 창을 반투명하게 투과시킵니다 (미니 HUD 상단 바의 👻 버튼으로도 즉시 조절 가능)</div>
+              </div>
+              <strong id="ui-hud-opacity-label" style="font-size: 14px; color: var(--brand); min-width: 48px; text-align: right;">100%</strong>
+            </div>
+            <div style="display:flex; align-items:center; gap: 12px; margin-top: 4px;">
+              <input type="range" id="ui-hud-opacity-slider" min="30" max="100" step="5" value="100" oninput="onMiniHudOpacitySlider(this.value)" style="flex:1; cursor:pointer;" />
+              <div style="display:flex; gap: 4px; flex-shrink: 0;">
+                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(100)">100% (불투명)</button>
+                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(80)">80%</button>
+                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(60)">60%</button>
+                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(40)">40% (고투명)</button>
+              </div>
+            </div>
+            <label style="display:flex; align-items:center; gap: 6px; font-size: 11.5px; color: var(--text-normal); margin-top: 4px; cursor:pointer;">
+              <input type="checkbox" id="ui-hud-hover-opaque" onchange="toggleMiniHudHoverOpaque(this.checked)" checked style="cursor:pointer;" />
+              <span>마우스 커서를 올렸을 때(Hover) 일시적으로 또렷하게(100%) 표시하여 버튼 클릭을 편리하게 합니다</span>
+            </label>
           </div>
 
           <!-- 미니 HUD에 표시할 타일 개별 선택 -->
@@ -10426,10 +10485,14 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const nb = (savedNormalBounds && savedNormalBounds.w >= 900 && savedNormalBounds.h >= 550)
       ? savedNormalBounds
       : { x: 120, y: 80, w: 1360, h: 880 };
+    const curOpacity = (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudOpacity === 'number')
+      ? uiPrefs.hudOpacity
+      : 100;
     const params = new URLSearchParams({
       mini: isMini ? '1' : '0',
       wide: miniHudWideLayout ? '1' : '0',
       topmost: miniHudTopmost ? '1' : '0',
+      opacity: curOpacity,
       mx: curX,
       my: curY,
       mw: curW,
@@ -10461,6 +10524,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         miniHudTopmost = st.topmost !== false;
       }
     }
+    if (st && typeof st.opacity === 'number' && st.opacity >= 20 && st.opacity <= 100) {
+      if (typeof uiPrefs !== 'undefined' && uiPrefs) {
+        uiPrefs.hudOpacity = st.opacity;
+      }
+    }
     if (st && st.normal_w >= 900 && st.normal_h >= 550) {
       persistNormalBounds({
         x: st.normal_x ?? 120,
@@ -10478,6 +10546,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       }
       updateMiniHudControlsUI();
       applyUiPrefs(false);
+      if (typeof uiPrefs !== 'undefined' && uiPrefs) {
+        applyMiniHudOpacity(uiPrefs.hudOpacity || 100);
+      }
       if (lastStatsData) {
         renderMiniHud();
       }
@@ -10537,8 +10608,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
     const target = getMiniHudTargetSize();
     resizeNativeAppWindow(target.w, target.h);
+    const curOpacity = (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudOpacity === 'number')
+      ? uiPrefs.hudOpacity
+      : 100;
+    applyMiniHudOpacity(curOpacity);
     try {
-      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}`, { method: 'POST' });
+      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}&opacity=${curOpacity}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -10548,8 +10623,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   async function exitMiniHudMode() {
     if (!isMiniHudMode) return;
     isMiniHudMode = false;
+    applyMiniHudOpacity(100);
     const overlay = document.getElementById('mini-hud-overlay');
-    if (overlay) overlay.classList.add('hidden');
+    if (overlay) {
+      overlay.classList.add('hidden');
+      overlay.style.opacity = '1';
+    }
 
     // URL에 ?mini=1 쿼리가 남아있으면 새로고침 시 다시 미니 HUD로 들어가는 현상 제거
     try {
@@ -10569,7 +10648,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     // 1. 브라우저 자체 창 제어(window.resizeTo / moveTo) 즉시 실행 + Win32 SetWindowPos 병행 호출
     resizeNativeAppWindow(targetW, targetH, targetX, targetY);
     try {
-      await apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}`, { method: 'POST' });
+      await apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}&opacity=100`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -10577,7 +10656,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     setTimeout(() => {
       if (!isMiniHudMode && (window.outerWidth < 850 || window.outerHeight < 520)) {
         resizeNativeAppWindow(targetW, targetH, targetX, targetY);
-        apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}`, { method: 'POST' }).catch(() => {});
+        apiFetch(`/api/window_ctl?topmost=0&x=${targetX}&y=${targetY}&w=${targetW}&h=${targetH}&opacity=100`, { method: 'POST' }).catch(() => {});
       }
       applyUiPrefs(false);
       applyDashboardViewMode();
@@ -10640,7 +10719,95 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (layBtn) {
       layBtn.textContent = miniHudWideLayout ? '📐 박스형 전환' : '📐 가로바 전환';
     }
+    const curOp = (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudOpacity === 'number')
+      ? uiPrefs.hudOpacity
+      : 100;
+    const opBtn = document.getElementById('mh-opacity-btn');
+    if (opBtn) {
+      opBtn.textContent = curOp >= 100 ? '👻 100%' : `👻 ${curOp}%`;
+      opBtn.classList.toggle('active', curOp < 100);
+      opBtn.title = `미니 HUD 창 투명도: 현재 ${curOp}% (클릭하여 100% ➔ 80% ➔ 60% ➔ 40% 순환)`;
+    }
   }
+
+  function applyMiniHudOpacity(val, temporary = false) {
+    const op = Math.max(25, Math.min(100, Number(val) || 100));
+    const overlay = document.getElementById('mini-hud-overlay');
+    if (overlay) {
+      if (isMiniHudMode) {
+        overlay.style.opacity = (op / 100).toFixed(2);
+      } else {
+        overlay.style.opacity = '1';
+      }
+    }
+    const opBtn = document.getElementById('mh-opacity-btn');
+    if (opBtn) {
+      opBtn.textContent = op >= 100 ? '👻 100%' : `👻 ${op}%`;
+      opBtn.classList.toggle('active', op < 100);
+      opBtn.title = `미니 HUD 창 투명도: 현재 ${op}% (클릭하여 100% ➔ 80% ➔ 60% ➔ 40% 순환)`;
+    }
+    const slider = document.getElementById('ui-hud-opacity-slider');
+    if (slider && !temporary) slider.value = op;
+    const label = document.getElementById('ui-hud-opacity-label');
+    if (label) label.textContent = `${op}%`;
+
+    // 백엔드 Win32 SetLayeredWindowAttributes 호출 (OS 창 차원 실제 투명화)
+    if (!temporary || isMiniHudMode) {
+      apiFetch(`/api/window_ctl?opacity=${op}`, { method: 'POST' }).catch(() => {});
+    }
+  }
+
+  function cycleMiniHudOpacity() {
+    const current = (uiPrefs && typeof uiPrefs.hudOpacity === 'number') ? uiPrefs.hudOpacity : 100;
+    const steps = [100, 80, 60, 40];
+    let nextIdx = 0;
+    const foundIdx = steps.indexOf(current);
+    if (foundIdx >= 0) {
+      nextIdx = (foundIdx + 1) % steps.length;
+    } else {
+      nextIdx = 1;
+    }
+    const nextVal = steps[nextIdx];
+    setMiniHudOpacityPref(nextVal);
+    showToast(`👻 미니 HUD 투명도가 ${nextVal}%로 설정되었습니다.`);
+  }
+
+  function setMiniHudOpacityPref(val) {
+    const op = Math.max(25, Math.min(100, Number(val) || 100));
+    if (!uiPrefs) return;
+    uiPrefs.hudOpacity = op;
+    saveUiPrefs();
+    applyMiniHudOpacity(op);
+    syncMiniHudState(isMiniHudMode);
+  }
+
+  function onMiniHudOpacitySlider(val) {
+    const op = Math.max(25, Math.min(100, Number(val) || 100));
+    const label = document.getElementById('ui-hud-opacity-label');
+    if (label) label.textContent = `${op}%`;
+    setMiniHudOpacityPref(op);
+  }
+
+  function toggleMiniHudHoverOpaque(checked) {
+    if (!uiPrefs) return;
+    uiPrefs.hudHoverOpaque = Boolean(checked);
+    saveUiPrefs();
+  }
+
+  (function initMiniHudHoverListener() {
+    const el = document.getElementById('mini-hud-overlay');
+    if (!el) return;
+    el.addEventListener('mouseenter', () => {
+      if (isMiniHudMode && uiPrefs && uiPrefs.hudHoverOpaque && uiPrefs.hudOpacity < 100) {
+        applyMiniHudOpacity(100, true);
+      }
+    });
+    el.addEventListener('mouseleave', () => {
+      if (isMiniHudMode && uiPrefs && uiPrefs.hudHoverOpaque && uiPrefs.hudOpacity < 100) {
+        applyMiniHudOpacity(uiPrefs.hudOpacity, false);
+      }
+    });
+  })();
 
   function renderMiniHud() {
     if (!isMiniHudMode || !lastStatsData) return;
@@ -12903,6 +13070,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     dashProductivity: true,
     hudLayoutWide: false,
     hudTopmost: true,
+    hudOpacity: 100,
+    hudHoverOpaque: true,
     hudFps: true,
     hudCpu: true,
     hudGpu: true,
@@ -12926,6 +13095,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     } else if (obj && typeof obj.dashProductivity === 'boolean') {
       res.dashPomo = obj.dashProductivity;
       res.dashProductivity = obj.dashProductivity;
+    }
+    if (typeof res.hudOpacity !== 'number' || res.hudOpacity < 25 || res.hudOpacity > 100) {
+      res.hudOpacity = 100;
+    }
+    if (typeof res.hudHoverOpaque !== 'boolean') {
+      res.hudHoverOpaque = true;
     }
     return res;
   }
@@ -13115,10 +13290,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       `).join('');
     }
 
+    const curOp = (typeof uiPrefs.hudOpacity === 'number') ? uiPrefs.hudOpacity : 100;
+    const opSlider = document.getElementById('ui-hud-opacity-slider');
+    if (opSlider) opSlider.value = curOp;
+    const opLabel = document.getElementById('ui-hud-opacity-label');
+    if (opLabel) opLabel.textContent = `${curOp}%`;
+    const opHoverChk = document.getElementById('ui-hud-hover-opaque');
+    if (opHoverChk) opHoverChk.checked = uiPrefs.hudHoverOpaque !== false;
+
+    if (isMiniHudMode) {
+      applyMiniHudOpacity(curOp);
+    }
+
     if (resizeMiniIfActive && isMiniHudMode) {
       resizeNativeAppWindow(targetSize.w, targetSize.h);
       try {
-        await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetSize.w}&h=${targetSize.h}`, { method: 'POST' });
+        await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetSize.w}&h=${targetSize.h}&opacity=${curOp}`, { method: 'POST' });
       } catch (e) {}
       syncMiniHudState(true);
     }
