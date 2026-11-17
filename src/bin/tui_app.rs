@@ -1057,7 +1057,7 @@ fn check_github_update() -> String {
 
     // 플랫폼별 업데이트 바이너리/패키지 다운로드 URL 추출
     #[cfg(target_os = "windows")]
-    let target_ext = ".exe";
+    let target_ext = "coreflow_setup.exe";
     #[cfg(target_os = "macos")]
     let target_ext = ".zip";
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
@@ -2086,6 +2086,47 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
     let _ = gpu_state;
 }
 
+#[cfg(target_os = "windows")]
+fn detect_system_cpu_temp() -> Option<f32> {
+    // 1. WMI root/LibreHardwareMonitor 또는 root/OpenHardwareMonitor
+    // 2. WMI MSAcpi_ThermalZoneTemperature (노트북 또는 ACPI 센서 지원 메인보드)
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            r#"$t = Get-CimInstance -Namespace 'root/LibreHardwareMonitor' -ClassName Sensor -Filter "SensorType='Temperature' AND (Name LIKE '%CPU%' OR Name LIKE '%Core%')" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Value -First 1; if ($t) { [Math]::Round($t, 1); exit }; $t = Get-CimInstance -Namespace 'root/OpenHardwareMonitor' -ClassName Sensor -Filter "SensorType='Temperature' AND (Name LIKE '%CPU%' OR Name LIKE '%Core%')" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Value -First 1; if ($t) { [Math]::Round($t, 1); exit }; $t = Get-CimInstance -Namespace 'root/wmi' -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -ExpandProperty CurrentTemperature -First 1; if ($t) { [Math]::Round(($t - 2732) / 10.0, 1); exit }"#,
+        ])
+        .no_window()
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Ok(val) = s.parse::<f32>() {
+            if (10.0..125.0).contains(&val) {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_system_cpu_temp() -> Option<f32> {
+    None
+}
+
+fn spawn_cpu_thermal_monitor(cpu_temp: Arc<Mutex<Option<f32>>>) {
+    thread::spawn(move || loop {
+        let detected = detect_system_cpu_temp();
+        if let Ok(mut lock) = cpu_temp.lock() {
+            *lock = detected;
+        }
+        thread::sleep(Duration::from_secs(4));
+    });
+}
+
 /// 대규모 공식 게임 실행 파일 목록 (국내외 인기 PC 게임 120+ 종 자동 감지)
 const KNOWN_GAMES: &[(&str, &str)] = &[
     ("league of legends.exe", "League of Legends"),
@@ -2693,6 +2734,7 @@ struct SharedState {
     networks: Networks,
     disks: Arc<Mutex<Vec<String>>>,
     gpu: Arc<Mutex<GpuMetrics>>,
+    cpu_temp: Arc<Mutex<Option<f32>>>,
     theme: Arc<Mutex<WindowsTheme>>,
     ping: Arc<Mutex<PingMetrics>>,
     active_game_target: Arc<Mutex<(u32, String)>>,
@@ -2715,6 +2757,7 @@ struct SharedState {
 impl SharedState {
     fn new(
         gpu: Arc<Mutex<GpuMetrics>>,
+        cpu_temp: Arc<Mutex<Option<f32>>>,
         theme: Arc<Mutex<WindowsTheme>>,
         ping: Arc<Mutex<PingMetrics>>,
         disks: Arc<Mutex<Vec<String>>>,
@@ -2732,6 +2775,7 @@ impl SharedState {
             networks,
             disks,
             gpu,
+            cpu_temp,
             theme,
             ping,
             active_game_target,
@@ -3210,9 +3254,16 @@ impl SharedState {
                 })
                 .collect();
 
+            let cpu_temp_val = self.cpu_temp.lock().ok().and_then(|t| *t);
+            let cpu_temp_json = match cpu_temp_val {
+                Some(v) => format!("{:.1}", v),
+                None => "null".to_string(),
+            };
+
             self.cached_json = format!(
-                r#"{{"cpu":{:.1},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
+                r#"{{"cpu":{:.1},"cpu_temp_c":{},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
                 global_cpu,
+                cpu_temp_json,
                 cpus.join(","),
                 total_mem,
                 used_mem,
@@ -5143,6 +5194,9 @@ fn run_worker(restarted: bool) {
     spawn_gpu_monitor(Arc::clone(&gpu_state));
     spawn_fps_etw_monitor();
 
+    let cpu_temp_state = Arc::new(Mutex::new(None));
+    spawn_cpu_thermal_monitor(Arc::clone(&cpu_temp_state));
+
     let ping_state = Arc::new(Mutex::new(PingMetrics::default()));
     let active_game_target = Arc::new(Mutex::new((0u32, String::new())));
     spawn_ping_monitor(Arc::clone(&ping_state), Arc::clone(&active_game_target));
@@ -5156,6 +5210,7 @@ fn run_worker(restarted: bool) {
 
     let state = Arc::new(Mutex::new(SharedState::new(
         Arc::clone(&gpu_state),
+        Arc::clone(&cpu_temp_state),
         Arc::clone(&theme_state),
         Arc::clone(&ping_state),
         Arc::clone(&disks_state),
@@ -10478,14 +10533,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     document.getElementById('mh-fps-sub').textContent = s.isGameRunning ? `${s.activeMs.toFixed(1)} ms • LIVE` : '실행 게임 없음';
 
     // 2. CPU
+    const cpuTempC = typeof d.cpu_temp_c === 'number' && d.cpu_temp_c > 0 ? d.cpu_temp_c : null;
     const maxCore = (d.cores && d.cores.length) ? Math.max(...d.cores) : d.cpu;
-    document.getElementById('mh-cpu-val').textContent = `${d.cpu.toFixed(1)}%`;
+    if (cpuTempC !== null) {
+      document.getElementById('mh-cpu-val').innerHTML = `${d.cpu.toFixed(0)}% <span style="font-size:0.75em; opacity:0.85; font-weight:700;">/ ${cpuTempC.toFixed(0)}°C</span>`;
+    } else {
+      document.getElementById('mh-cpu-val').innerHTML = `${d.cpu.toFixed(0)}% <span style="font-size:0.75em; opacity:0.5; font-weight:600;">/ -</span>`;
+    }
     document.getElementById('mh-cpu-core').textContent = `${(d.cores || []).length}코어`;
     document.getElementById('mh-cpu-bar').style.width = `${Math.min(100, d.cpu)}%`;
     document.getElementById('mh-cpu-sub').textContent = `최고 코어 ${maxCore.toFixed(0)}%`;
 
     // 3. GPU
-    document.getElementById('mh-gpu-val').textContent = `${s.gpuUsage.toFixed(1)}%`;
+    if (s.tempC > 0) {
+      document.getElementById('mh-gpu-val').innerHTML = `${s.gpuUsage.toFixed(0)}% <span style="font-size:0.75em; opacity:0.85; font-weight:700;">/ ${s.tempC.toFixed(0)}°C</span>`;
+    } else {
+      document.getElementById('mh-gpu-val').innerHTML = `${s.gpuUsage.toFixed(0)}% <span style="font-size:0.75em; opacity:0.5; font-weight:600;">/ -</span>`;
+    }
     const tempEl = document.getElementById('mh-gpu-temp');
     tempEl.textContent = `${s.tempC.toFixed(0)}°C`;
     tempEl.style.color = s.tempC >= 78 ? 'var(--red)' : (s.tempC >= 65 ? 'var(--yellow)' : 'var(--neon-green)');
@@ -10686,7 +10750,14 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       }
 
       // 1. CPU 업데이트
-      document.getElementById('cpu-percent').textContent = `${d.cpu.toFixed(1)}%`;
+      const cpuTempC = typeof d.cpu_temp_c === 'number' && d.cpu_temp_c > 0 ? d.cpu_temp_c : null;
+      const cpuPctText = `${d.cpu.toFixed(1)}%`;
+      if (cpuTempC !== null) {
+        const cpuTempColor = cpuTempC >= 80 ? 'var(--red)' : (cpuTempC >= 70 ? 'var(--yellow)' : 'var(--neon-green)');
+        document.getElementById('cpu-percent').innerHTML = `${cpuPctText} <span style="font-size:0.75em; opacity:0.88; font-weight:700; margin-left:3px; color:${cpuTempColor}">/ ${cpuTempC.toFixed(0)}°C</span>`;
+      } else {
+        document.getElementById('cpu-percent').innerHTML = `${cpuPctText} <span style="font-size:0.72em; opacity:0.45; font-weight:600; margin-left:3px;">/ -</span>`;
+      }
       document.getElementById('cpu-bar').style.width = `${Math.min(100, d.cpu)}%`;
       document.getElementById('core-count-label').textContent = `${d.cores.length} 코어`;
       document.getElementById('sidebar-cpu-brand').textContent = d.cpu_brand;
@@ -10723,18 +10794,26 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       const tempC = g.temp_c || 0;
 
       document.getElementById('sidebar-gpu-name').textContent = g.name || 'GPU';
-      document.getElementById('gpu-percent').textContent = `${gpuUsage.toFixed(1)}%`;
+      const gpuPctText = `${gpuUsage.toFixed(1)}%`;
+      if (tempC > 0) {
+        const gpuTempColor = tempC >= 78 ? 'var(--red)' : (tempC >= 65 ? 'var(--yellow)' : 'var(--neon-green)');
+        document.getElementById('gpu-percent').innerHTML = `${gpuPctText} <span style="font-size:0.75em; opacity:0.88; font-weight:700; margin-left:3px; color:${gpuTempColor}">/ ${tempC.toFixed(0)}°C</span>`;
+      } else {
+        document.getElementById('gpu-percent').innerHTML = `${gpuPctText} <span style="font-size:0.72em; opacity:0.45; font-weight:600; margin-left:3px;">/ -</span>`;
+      }
       document.getElementById('gpu-vram-detail').textContent = `VRAM ${vramUsedGb.toFixed(2)} / ${vramTotalGb.toFixed(1)} GB`;
       document.getElementById('gpu-bar').style.width = `${Math.min(100, gpuUsage)}%`;
 
       const tempEl = document.getElementById('gpu-temp-badge');
-      tempEl.textContent = `${tempC.toFixed(0)}°C`;
-      tempEl.style.color = tempC >= 78 ? 'var(--red)' : (tempC >= 65 ? 'var(--yellow)' : 'var(--neon-green)');
+      if (tempEl) {
+        tempEl.textContent = tempC > 0 ? `${tempC.toFixed(0)}°C` : '-';
+        tempEl.style.color = tempC >= 78 ? 'var(--red)' : (tempC >= 65 ? 'var(--yellow)' : 'var(--neon-green)');
+      }
 
       document.getElementById('gpu-power-pill').textContent = `⚡ ${(g.power_w || 0).toFixed(1)} W`;
       document.getElementById('gpu-clock-pill').textContent = `⏱️ ${g.clock_mhz || 0} MHz`;
       document.getElementById('gpu-vram-pct-pill').textContent = `VRAM ${vramPct.toFixed(0)}%`;
-      document.getElementById('mini-status').textContent = `CPU ${d.cpu.toFixed(0)}% • GPU ${gpuUsage.toFixed(0)}%`;
+      document.getElementById('mini-status').textContent = `CPU ${d.cpu.toFixed(0)}%${cpuTempC ? ` (${cpuTempC.toFixed(0)}°C)` : ''} • GPU ${gpuUsage.toFixed(0)}%${tempC > 0 ? ` (${tempC.toFixed(0)}°C)` : ''}`;
 
       gpuHistory.push(gpuUsage);
       if (gpuHistory.length > 60) gpuHistory.shift();
