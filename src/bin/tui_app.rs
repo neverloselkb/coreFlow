@@ -2125,12 +2125,33 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
             sys.refresh_memory();
             let total_ram_mb = (sys.total_memory() / (1024 * 1024)) as f32;
             let used_ram_mb = (sys.used_memory() / (1024 * 1024)) as f32;
+            let mut gpu_usage = 0.0f32;
+            if let Ok(out) = Command::new("ioreg")
+                .args(["-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"])
+                .output()
+            {
+                let s = String::from_utf8_lossy(&out.stdout);
+                for line in s.lines() {
+                    if line.contains("\"Device Utilization %\"") {
+                        if let Some(val_str) = line.split('=').nth(1) {
+                            if let Ok(val) = val_str.trim().parse::<f32>() {
+                                gpu_usage = val.clamp(0.0, 100.0);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if let Ok(mut g) = gpu_state.lock() {
                 g.name = "Apple Silicon GPU (Unified)".to_string();
-                g.usage_pct = 0.0;
+                g.usage_pct = gpu_usage;
                 g.vram_used_mb = used_ram_mb;
                 g.vram_total_mb = total_ram_mb;
-                g.temp_c = 0.0;
+                if g.temp_c <= 0.0 {
+                    if let Some(t) = detect_system_cpu_temp() {
+                        g.temp_c = t;
+                    }
+                }
                 g.power_w = 0.0;
                 g.clock_mhz = 0;
             }
@@ -2170,7 +2191,23 @@ fn detect_system_cpu_temp() -> Option<f32> {
     None
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn detect_system_cpu_temp() -> Option<f32> {
+    let comps = sysinfo::Components::new_with_refreshed_list();
+    for c in comps.iter() {
+        let label = c.label().to_lowercase();
+        if label.contains("cpu") || label.contains("soc") || label.contains("core") || label.contains("die") {
+            if let Some(temp) = c.temperature() {
+                if (15.0..120.0).contains(&temp) {
+                    return Some(temp);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn detect_system_cpu_temp() -> Option<f32> {
     None
 }
@@ -3341,6 +3378,13 @@ impl SharedState {
                 Some(v) => format!("{:.1}", v),
                 None => "null".to_string(),
             };
+            let gpu_temp_val = if gpu_data.temp_c > 0.0 {
+                gpu_data.temp_c
+            } else if let Some(ct) = cpu_temp_val {
+                ct
+            } else {
+                0.0
+            };
 
             self.cached_json = format!(
                 r#"{{"cpu":{:.1},"cpu_temp_c":{},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
@@ -3363,7 +3407,7 @@ impl SharedState {
                 gpu_data.usage_pct,
                 gpu_data.vram_used_mb,
                 gpu_data.vram_total_mb,
-                gpu_data.temp_c,
+                gpu_temp_val,
                 gpu_data.power_w,
                 gpu_data.clock_mhz,
                 net_rx_mb_s,
