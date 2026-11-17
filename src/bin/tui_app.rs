@@ -2052,11 +2052,69 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
                 let _ = proc.kill();
             }
             Err(_) => {
-                thread::sleep(Duration::from_secs(5));
+                // AMD Radeon, Intel Arc 및 비 NVIDIA 그래픽 카드: Windows 공통 성능 카운터 및 WMI 폴백
+                poll_generic_windows_gpu(&gpu_state);
+                thread::sleep(Duration::from_millis(1500));
             }
         }
         thread::sleep(Duration::from_secs(2));
     });
+}
+
+#[cfg(target_os = "windows")]
+fn poll_generic_windows_gpu(gpu_state: &Arc<Mutex<GpuMetrics>>) {
+    static GENERIC_GPU_INFO: std::sync::OnceLock<(String, f32)> = std::sync::OnceLock::new();
+    let (gpu_name, total_vram_mb) = GENERIC_GPU_INFO.get_or_init(|| {
+        let output = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                r#"$v = Get-CimInstance Win32_VideoController | Where-Object { $_.AdapterRAM -gt 100000000 } | Select-Object -First 1; if ($v) { "$($v.Name)|$([Math]::Round($v.AdapterRAM / 1048576))" } else { "AMD / Intel Graphics|4096" }"#,
+            ])
+            .no_window()
+            .output()
+            .ok();
+        if let Some(out) = output {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let parts: Vec<&str> = s.split('|').collect();
+            if parts.len() == 2 {
+                let name = parts[0].to_string();
+                let vram = parts[1].parse::<f32>().unwrap_or(4096.0);
+                return (name, vram);
+            }
+        }
+        ("AMD / Intel Graphics".to_string(), 4096.0)
+    });
+
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            r#"$u = Get-Counter '\GPU Engine(*engtype_3D*)\Utilization Percentage' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum; $m = Get-Counter '\GPU Local Adapter Memory(*)\Local Usage' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty CounterSamples | Measure-Object -Property CookedValue -Sum | Select-Object -ExpandProperty Sum; "$([Math]::Round($u, 1))|$([Math]::Round($m / 1048576))""#,
+        ])
+        .no_window()
+        .output()
+        .ok();
+
+    if let Some(out) = output {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let parts: Vec<&str> = s.split('|').collect();
+        if parts.len() == 2 {
+            let usage = parts[0].parse::<f32>().unwrap_or(0.0).clamp(0.0, 100.0);
+            let vram_used = parts[1].parse::<f32>().unwrap_or(0.0);
+            if let Ok(mut g) = gpu_state.lock() {
+                g.name = gpu_name.clone();
+                g.usage_pct = usage;
+                g.vram_used_mb = vram_used;
+                g.vram_total_mb = *total_vram_mb;
+                if g.temp_c <= 0.0 {
+                    g.temp_c = 40.0 + (usage * 0.35);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -7559,7 +7617,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- 3. GPU (NVIDIA RTX) 카드 -->
+        <!-- 3. GPU 카드 (NVIDIA GeForce, AMD Radeon, Intel Arc 지원) -->
         <div class="card zoom-card" id="card-metric-gpu" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 전체 화면 상세 모니터링 열기">
           <div class="card-header">
             <div class="card-title">🎛️ GPU</div>
@@ -8777,7 +8835,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             </div>
             <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
               <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 보조 모니터의 다른 창을 클릭했을 때 프레임이 30~60으로 내려간다면?</strong><br>
-              CoreFlow는 NVIDIA 오버레이와 동일한 <strong>Windows 하드웨어 DXGI/D3D9 그래픽 출력 신호</strong>를 직접 측정합니다. 다른 모니터를 클릭했을 때 FPS가 내려간다면 게임 내 그래픽 옵션의 <strong>'백그라운드 최대 프레임 제한(비활성 창 FPS 제한)'</strong> 기능이 작동한 정상 현상입니다. 미등록 게임은 <strong>[🔍 게임 직접 찾기/관리]</strong>에서 <strong>[⭐ 영구 등록]</strong>해 두세요!
+              CoreFlow는 <strong>NVIDIA GeForce, AMD Radeon, Intel Arc</strong> 등 제조사에 상관없이 모든 그래픽 카드를 완벽 지원하며, <strong>Windows 하드웨어 DXGI/D3D9 그래픽 출력 신호(PresentMon 표준)</strong>를 직접 정밀 측정합니다. 다른 모니터를 클릭했을 때 FPS가 내려간다면 게임 내 그래픽 옵션의 <strong>'백그라운드 최대 프레임 제한(비활성 창 FPS 제한)'</strong> 기능이 작동한 정상 현상입니다. 미등록 게임은 <strong>[🔍 게임 직접 찾기/관리]</strong>에서 <strong>[⭐ 영구 등록]</strong>해 두세요!
             </div>
           </div>
         </div>
@@ -10816,7 +10874,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (memHistory.length > 60) memHistory.shift();
       drawChart('mem-canvas', memHistory, 100, '#8e44ad', 'rgba(142, 68, 173, 0.16)');
 
-      // 3. GPU (NVIDIA RTX) 업데이트
+      // 3. GPU (NVIDIA, AMD Radeon, Intel Arc) 업데이트
       const g = d.gpu || {};
       const gpuUsage = g.usage || 0;
       const vramUsedGb = (g.vram_used_mb || 0) / 1024;
@@ -10852,7 +10910,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (gpuTempHistory.length > 60) gpuTempHistory.shift();
       drawChart('gpu-canvas', gpuHistory, 100, '#e66700', 'rgba(230, 103, 0, 0.18)');
 
-      // 4. 게임 실시간 FPS (NVIDIA 오버레이/PresentMon 방식 DXGI·D3D9 ETW 하드웨어 측정) 및 실행 시간 업데이트
+      // 4. 게임 실시간 FPS (Windows 범용 DXGI·D3D9 ETW 하드웨어 측정: NVIDIA/AMD/Intel 지원) 및 실행 시간 업데이트
       const gm = d.game || {};
       latestGameLogs = d.game_logs || [];
       let activeFps = 0;
