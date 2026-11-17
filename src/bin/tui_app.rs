@@ -7183,6 +7183,63 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     color: #fff;
   }
 
+  /* 미니 HUD 상단 바 인라인 투명도 막대바(슬라이더) 스타일 */
+  .mini-hud-opacity-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    padding: 2px 7px;
+    height: 23px;
+    box-sizing: border-box;
+    cursor: default;
+    user-select: none;
+  }
+
+  .mini-hud-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 68px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(120, 120, 140, 0.4);
+    outline: none;
+    cursor: pointer;
+    accent-color: var(--brand);
+    margin: 0;
+  }
+
+  .mini-hud-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--brand);
+    cursor: pointer;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
+    transition: transform 0.1s ease;
+  }
+
+  .mini-hud-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.25);
+  }
+
+  /* 미니 HUD 모드 활성화 시 기본 대시보드 및 사이드바 DOM 요소 완전 은닉 (투명 시 비침 원천 차단) */
+  body.mode-mini-hud .server-rail,
+  body.mode-mini-hud .sidebar,
+  body.mode-mini-hud .main-content,
+  body.mode-mini-hud .detail-overlay:not(#mini-hud-overlay) {
+    display: none !important;
+  }
+
+  body.mode-mini-hud {
+    background-color: transparent !important;
+    overflow: hidden !important;
+  }
+
   /* 화면·미니 HUD 맞춤 설정 스타일 */
   .custom-toggle-grid {
     display: grid;
@@ -8408,7 +8465,14 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <span id="mh-game-badge" class="badge" style="font-size:10px; padding:2px 6px; overflow:hidden; text-overflow:ellipsis;">IDLE 대기</span>
       </div>
       <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
-        <button id="mh-opacity-btn" class="mini-btn" onclick="cycleMiniHudOpacity()" title="미니 HUD 창 투명도를 조절합니다 (100% ➔ 80% ➔ 60% ➔ 40%)">👻 100%</button>
+        <div class="mini-hud-opacity-control" title="미니 HUD 투명도 조절 (막대바를 드래그하여 투명도 실시간 설정)">
+          <span style="font-size:11px; flex-shrink:0;">👻</span>
+          <input type="range" id="mh-bar-opacity-slider" min="30" max="100" step="5" value="100"
+                 oninput="onMiniHudBarSliderInput(this.value)"
+                 onchange="onMiniHudBarSliderChange(this.value)"
+                 class="mini-hud-slider" />
+          <span id="mh-bar-opacity-val" style="font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; min-width:30px; text-align:right; color:var(--brand);">100%</span>
+        </div>
         <button id="mh-topmost-btn" class="mini-btn active" onclick="toggleMiniHudTopmost()" title="다른 창이나 창모드 게임 위에 항상 고정(Topmost)할지 선택합니다">📌 항상 위 ON</button>
         <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="컴팩트 2단 박스형과 슬림 1줄 가로 바형 레이아웃을 즉시 전환합니다">📐 가로바 전환</button>
         <button class="mini-btn" onclick="openUiSettingsFromMiniHud()" title="표시할 하드웨어 항목 선택 및 박스형/가로바 레이아웃 설정 화면 열기">⚙️ 설정</button>
@@ -10539,6 +10603,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
     if (hasMiniParam || (st && st.is_mini)) {
       isMiniHudMode = true;
+      document.body.classList.add('mode-mini-hud');
       const overlay = document.getElementById('mini-hud-overlay');
       if (overlay) {
         overlay.classList.remove('hidden');
@@ -10552,13 +10617,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (lastStatsData) {
         renderMiniHud();
       }
-    } else if (window.outerWidth >= 900 && window.outerHeight >= 550) {
-      persistNormalBounds({
-        x: Math.round(window.screenX ?? window.screenLeft ?? 120),
-        y: Math.round(window.screenY ?? window.screenTop ?? 80),
-        w: Math.round(window.outerWidth),
-        h: Math.round(window.outerHeight)
-      });
+    } else {
+      document.body.classList.remove('mode-mini-hud');
+      if (window.outerWidth >= 900 && window.outerHeight >= 550) {
+        persistNormalBounds({
+          x: Math.round(window.screenX ?? window.screenLeft ?? 120),
+          y: Math.round(window.screenY ?? window.screenTop ?? 80),
+          w: Math.round(window.outerWidth),
+          h: Math.round(window.outerHeight)
+        });
+      }
     }
   }
 
@@ -10591,6 +10659,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       });
     }
     isMiniHudMode = true;
+    document.body.classList.add('mode-mini-hud');
     closeDetailView();
     closeRecordAnalysis();
     closeAlertSettings();
@@ -10623,11 +10692,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   async function exitMiniHudMode() {
     if (!isMiniHudMode) return;
     isMiniHudMode = false;
+    document.body.classList.remove('mode-mini-hud');
     applyMiniHudOpacity(100);
     const overlay = document.getElementById('mini-hud-overlay');
     if (overlay) {
       overlay.classList.add('hidden');
-      overlay.style.opacity = '1';
     }
 
     // URL에 ?mini=1 쿼리가 남아있으면 새로고침 시 다시 미니 HUD로 들어가는 현상 제거
@@ -10722,54 +10791,47 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const curOp = (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudOpacity === 'number')
       ? uiPrefs.hudOpacity
       : 100;
-    const opBtn = document.getElementById('mh-opacity-btn');
-    if (opBtn) {
-      opBtn.textContent = curOp >= 100 ? '👻 100%' : `👻 ${curOp}%`;
-      opBtn.classList.toggle('active', curOp < 100);
-      opBtn.title = `미니 HUD 창 투명도: 현재 ${curOp}% (클릭하여 100% ➔ 80% ➔ 60% ➔ 40% 순환)`;
-    }
+    const barSlider = document.getElementById('mh-bar-opacity-slider');
+    if (barSlider) barSlider.value = curOp;
+    const barVal = document.getElementById('mh-bar-opacity-val');
+    if (barVal) barVal.textContent = `${curOp}%`;
   }
 
   function applyMiniHudOpacity(val, temporary = false) {
     const op = Math.max(25, Math.min(100, Number(val) || 100));
-    const overlay = document.getElementById('mini-hud-overlay');
-    if (overlay) {
-      if (isMiniHudMode) {
-        overlay.style.opacity = (op / 100).toFixed(2);
-      } else {
-        overlay.style.opacity = '1';
-      }
-    }
-    const opBtn = document.getElementById('mh-opacity-btn');
-    if (opBtn) {
-      opBtn.textContent = op >= 100 ? '👻 100%' : `👻 ${op}%`;
-      opBtn.classList.toggle('active', op < 100);
-      opBtn.title = `미니 HUD 창 투명도: 현재 ${op}% (클릭하여 100% ➔ 80% ➔ 60% ➔ 40% 순환)`;
-    }
+
+    // 미니 HUD 상단 바 인라인 막대바(슬라이더) & 수치 라벨 동기화
+    const barSlider = document.getElementById('mh-bar-opacity-slider');
+    if (barSlider && !temporary) barSlider.value = op;
+    const barVal = document.getElementById('mh-bar-opacity-val');
+    if (barVal) barVal.textContent = `${op}%`;
+
+    // 설정 모달 슬라이더 & 라벨 동기화
     const slider = document.getElementById('ui-hud-opacity-slider');
     if (slider && !temporary) slider.value = op;
     const label = document.getElementById('ui-hud-opacity-label');
     if (label) label.textContent = `${op}%`;
 
-    // 백엔드 Win32 SetLayeredWindowAttributes 호출 (OS 창 차원 실제 투명화)
+    // 백엔드 Win32 SetLayeredWindowAttributes 호출 (OS 창 차원 실제 투명화: 게임 화면이 비치도록)
     if (!temporary || isMiniHudMode) {
       apiFetch(`/api/window_ctl?opacity=${op}`, { method: 'POST' }).catch(() => {});
     }
   }
 
-  function cycleMiniHudOpacity() {
-    const current = (uiPrefs && typeof uiPrefs.hudOpacity === 'number') ? uiPrefs.hudOpacity : 100;
-    const steps = [100, 80, 60, 40];
-    let nextIdx = 0;
-    const foundIdx = steps.indexOf(current);
-    if (foundIdx >= 0) {
-      nextIdx = (foundIdx + 1) % steps.length;
-    } else {
-      nextIdx = 1;
-    }
-    const nextVal = steps[nextIdx];
-    setMiniHudOpacityPref(nextVal);
-    showToast(`👻 미니 HUD 투명도가 ${nextVal}%로 설정되었습니다.`);
+  function onMiniHudBarSliderInput(val) {
+    const op = Math.max(25, Math.min(100, Number(val) || 100));
+    const barVal = document.getElementById('mh-bar-opacity-val');
+    if (barVal) barVal.textContent = `${op}%`;
+    const label = document.getElementById('ui-hud-opacity-label');
+    if (label) label.textContent = `${op}%`;
+    const slider = document.getElementById('ui-hud-opacity-slider');
+    if (slider) slider.value = op;
+    applyMiniHudOpacity(op, true);
+  }
+
+  function onMiniHudBarSliderChange(val) {
+    const op = Math.max(25, Math.min(100, Number(val) || 100));
+    setMiniHudOpacityPref(op);
   }
 
   function setMiniHudOpacityPref(val) {
