@@ -543,12 +543,6 @@ fn stop_running_coreflow() -> usize {
         }
     }
 
-    // 혹시 남은 자식 프로세스 트리까지 확실히 정리
-    let _ = Command::new("taskkill")
-        .args(["/F", "/T", "/IM", "CoreFlow.exe"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-
     thread::sleep(Duration::from_millis(500));
     killed
 }
@@ -783,14 +777,6 @@ fn perform_install(
         None => refresh_startup_autorun_path(&exe_path),
     }
 
-    // 9.5. 하드웨어 DXGI/D3D9 ETW 실시간 FPS 측정을 위한 Performance Log Users 그룹(S-1-5-32-559) 권한 부여
-    if let Ok(user) = env::var("USERNAME") {
-        let _ = Command::new("net")
-            .args(["localgroup", "*S-1-5-32-559", &user, "/add"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-    }
-
     // 10. 설치 완료 후 바로 실행
     if opt_launch {
         let _ = Command::new(&exe_path)
@@ -898,10 +884,18 @@ fn launch_setup_window(url: &str) {
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
     } else {
-        let _ = Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+        unsafe {
+            let op_w = to_wide_null("open");
+            let url_w = to_wide_null(url);
+            let _ = ShellExecuteW(
+                0,
+                op_w.as_ptr(),
+                url_w.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            );
+        }
     }
 }
 

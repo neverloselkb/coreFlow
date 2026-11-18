@@ -117,6 +117,14 @@ extern "system" {
         phiconSmall: *mut isize,
         nIcons: u32,
     ) -> u32;
+    fn ShellExecuteW(
+        hwnd: isize,
+        lpOperation: *const u16,
+        lpFile: *const u16,
+        lpParameters: *const u16,
+        lpDirectory: *const u16,
+        nShowCmd: i32,
+    ) -> isize;
 }
 
 #[cfg(target_os = "windows")]
@@ -614,7 +622,6 @@ fn spawn_fps_etw_monitor() {
     thread::spawn(|| {
         let session_name = to_wide(ETW_FPS_SESSION_NAME);
         let total_size = std::mem::size_of::<EventTraceProperties>() + session_name.len() * 2 + 64;
-        let mut tried_group_add = false;
 
         loop {
             let mut buf = vec![0u64; (total_size + 7) / 8];
@@ -642,17 +649,12 @@ fn spawn_fps_etw_monitor() {
                 let mut session_handle: u64 = 0;
                 let status = StartTraceW(&mut session_handle, session_name.as_ptr(), props_ptr);
                 if status != 0 {
-                    // ERROR_ACCESS_DENIED (5)인 경우 Performance Log Users 그룹(S-1-5-32-559) 등록 1회 시도
-                    if status == 5 && !tried_group_add {
-                        tried_group_add = true;
-                        if let Ok(user) = std::env::var("USERNAME") {
-                            let _ = Command::new("net")
-                                .args(["localgroup", "*S-1-5-32-559", &user, "/add"])
-                                .no_window()
-                                .status();
-                        }
+                    // ERROR_ACCESS_DENIED (5): 현재 프로세스 토큰에 ETW 세션 생성 권한이 없으면
+                    // 불필요한 외부 명령(net.exe 등)을 호출하지 않고 조용히 폴백 엔진에 위임
+                    if status == 5 {
+                        return;
                     }
-                    thread::sleep(Duration::from_secs(10));
+                    thread::sleep(Duration::from_secs(15));
                     continue;
                 }
 
@@ -1108,6 +1110,149 @@ fn check_github_update() -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn sha256_hex(data: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64) * 8;
+    let mut msg = data.to_vec();
+    msg.push(0x80);
+    while (msg.len() % 64) != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in msg.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+    format!(
+        "{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+        h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]
+    )
+}
+
+#[cfg(target_os = "windows")]
+/// 다운로드된 업데이트 파일이 유효한 Windows 64비트 PE 실행 파일인지 검증하고,
+/// GitHub Releases API에 SHA-256 다이제스트가 제공된 경우 해시 일치 여부를 대조합니다.
+fn verify_downloaded_installer(
+    path: &std::path::Path,
+    download_url: &str,
+) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|_| "다운로드된 설치 파일을 읽을 수 없습니다.".to_string())?;
+    if bytes.len() < 500_000 {
+        return Err("다운로드된 파일 크기가 비정상적으로 작습니다.".to_string());
+    }
+    // 1. DOS MZ 헤더 및 PE\0\0 시그니처(AMD64 0x8664) 무결성 확인
+    if &bytes[0..2] != b"MZ" {
+        return Err("유효한 Windows 실행 파일(MZ 헤더)이 아닙니다.".to_string());
+    }
+    let pe_off = u32::from_le_bytes([bytes[0x3c], bytes[0x3d], bytes[0x3e], bytes[0x3f]]) as usize;
+    if pe_off + 6 >= bytes.len() || &bytes[pe_off..pe_off + 4] != b"PE\0\0" {
+        return Err("PE 실행 파일 헤더가 손상되었습니다.".to_string());
+    }
+    let machine = u16::from_le_bytes([bytes[pe_off + 4], bytes[pe_off + 5]]);
+    if machine != 0x8664 {
+        return Err("64비트(AMD64) Windows 실행 파일이 아닙니다.".to_string());
+    }
+
+    // 2. SHA-256 해시 계산 및 GitHub API 공식 digest 대조
+    let actual_sha256 = sha256_hex(&bytes);
+    let api_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    if let Ok(out) = Command::new("curl.exe")
+        .args([
+            "-sL",
+            "--max-time",
+            "6",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            &api_url,
+        ])
+        .no_window()
+        .output()
+    {
+        let body = String::from_utf8_lossy(&out.stdout);
+        // 해당 다운로드 URL이 포함된 에셋 블록에서 "digest": "sha256:..." 추출
+        if let Some(url_pos) = body.find(download_url) {
+            let window_start = url_pos.saturating_sub(600);
+            let window_end = (url_pos + download_url.len() + 300).min(body.len());
+            let slice = &body[window_start..window_end];
+            if let Some(digest_raw) = extract_json_str_field(slice, "digest") {
+                if let Some(expected_hex) = digest_raw.strip_prefix("sha256:") {
+                    if !expected_hex.eq_ignore_ascii_case(&actual_sha256) {
+                        return Err(format!(
+                            "다운로드 파일의 SHA-256 해시가 일치하지 않습니다 (예상: {}, 실제: {}).",
+                            expected_hex, actual_sha256
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(actual_sha256)
+}
+
+#[cfg(target_os = "windows")]
 /// GitHub Release에서 최신 `CoreFlow_Setup.exe`를 다운로드하여 무인 업데이트(`--silent-update`) 실행
 fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
     if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
@@ -1134,13 +1279,16 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         .no_window()
         .status();
 
-    let downloaded_ok = status.map(|s| s.success()).unwrap_or(false)
-        && std::fs::metadata(&tmp_installer)
-            .map(|m| m.len() > 500_000)
-            .unwrap_or(false);
+    if !status.map(|s| s.success()).unwrap_or(false) {
+        return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow_Setup.exe 설치 파일을 다운로드하지 못했습니다."}"#.to_string();
+    }
 
-    if !downloaded_ok {
-        return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow_Setup.exe 설치 파일을 다운로드하지 못했습니다. Release에 CoreFlow_Setup.exe 파일이 첨부되어 있는지 확인해 주세요."}"#.to_string();
+    if let Err(reason) = verify_downloaded_installer(&tmp_installer, download_url) {
+        let _ = std::fs::remove_file(&tmp_installer);
+        return format!(
+            r#"{{"ok":false,"error":"업데이트 파일 무결성 검증 실패: {}"}}"#,
+            json_escape(&reason)
+        );
     }
 
     let current_install_dir = std::env::current_exe()
@@ -5034,10 +5182,18 @@ fn handle_client(
             .unwrap_or_default();
         if ext_url.starts_with("https://github.com/neverloselkb/coreFlow") {
             #[cfg(target_os = "windows")]
-            let _ = Command::new("cmd")
-                .args(["/C", "start", "", &ext_url])
-                .no_window()
-                .spawn();
+            unsafe {
+                let op_w = to_wide("open");
+                let url_w = to_wide(&ext_url);
+                let _ = ShellExecuteW(
+                    0,
+                    op_w.as_ptr(),
+                    url_w.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    1,
+                );
+            }
 
             #[cfg(target_os = "macos")]
             let _ = Command::new("open").arg(&ext_url).spawn();
@@ -5070,10 +5226,7 @@ fn handle_client(
             if std::env::var("COREFLOW_SUPERVISED").is_err() {
                 if let Ok(exe) = std::env::current_exe() {
                     #[cfg(target_os = "windows")]
-                    let _ = Command::new("cmd")
-                        .args(["/C", "start", "", &exe.to_string_lossy()])
-                        .no_window()
-                        .spawn();
+                    let _ = Command::new(&exe).no_window().spawn();
 
                     #[cfg(target_os = "macos")]
                     let _ = Command::new("open").arg(&exe).spawn();
@@ -5395,19 +5548,23 @@ fn handle_legacy_silent_update(args: &[String]) -> bool {
     }
 
     if !installed && denied && !already_elevated {
-        // Program Files 쓰기 권한이 없으면 UAC 권한 상승 후 다시 시도
-        let ps_cmd = format!(
-            "Start-Process -FilePath '{}' -Verb RunAs -ArgumentList @('--silent-update','--heal-elevated','--dir','\"{}\"')",
-            self_exe.display().to_string().replace('\'', "''"),
-            dir.replace('\'', "''")
-        );
-        let ok = Command::new("powershell.exe")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
-            .no_window()
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok {
+        // Program Files 쓰기 권한이 없으면 숨김 PowerShell 대신 표준 Win32 ShellExecuteW("runas")로 UAC 권한 상승 요청
+        let op_w = to_wide("runas");
+        let exe_w = to_wide(&self_exe.to_string_lossy());
+        let param_str = format!("--silent-update --heal-elevated --dir \"{}\"", dir);
+        let param_w = to_wide(&param_str);
+        let dir_w = to_wide(&target_dir.to_string_lossy());
+        let res = unsafe {
+            ShellExecuteW(
+                0,
+                op_w.as_ptr(),
+                exe_w.as_ptr(),
+                param_w.as_ptr(),
+                dir_w.as_ptr(),
+                1,
+            )
+        };
+        if res > 32 {
             return true;
         }
     }

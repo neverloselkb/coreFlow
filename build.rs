@@ -244,12 +244,155 @@ fn write_dir_entry(out: &mut Vec<u8>, id: u32, offset: u32, is_subdir: bool) {
     out.extend_from_slice(&off.to_le_bytes());
 }
 
+fn build_ver_node(
+    key: &str,
+    value: &[u8],
+    value_len_field: u16,
+    w_type: u16,
+    children: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut node = Vec::new();
+    node.extend_from_slice(&0u16.to_le_bytes()); // wLength placeholder
+    node.extend_from_slice(&value_len_field.to_le_bytes());
+    node.extend_from_slice(&w_type.to_le_bytes());
+    for ch in key.encode_utf16().chain(std::iter::once(0)) {
+        node.extend_from_slice(&ch.to_le_bytes());
+    }
+    while node.len() % 4 != 0 {
+        node.push(0);
+    }
+    if !value.is_empty() {
+        node.extend_from_slice(value);
+    }
+    for child in children {
+        while node.len() % 4 != 0 {
+            node.push(0);
+        }
+        node.extend_from_slice(child);
+    }
+    let total_len = node.len() as u16;
+    node[0..2].copy_from_slice(&total_len.to_le_bytes());
+    node
+}
+
+fn build_ver_string_pair(key: &str, val: &str) -> Vec<u8> {
+    let mut val_bytes = Vec::new();
+    let mut wchar_count = 0u16;
+    for ch in val.encode_utf16().chain(std::iter::once(0)) {
+        val_bytes.extend_from_slice(&ch.to_le_bytes());
+        wchar_count += 1;
+    }
+    build_ver_node(key, &val_bytes, wchar_count, 1, &[])
+}
+
+/// Builds a standard Windows `VS_VERSIONINFO` resource payload (`RT_VERSION` = 16)
+/// so Windows Explorer, SmartScreen, and Defender recognize publisher/product metadata.
+fn build_version_info_blob(
+    pkg_ver: &str,
+    file_desc: &str,
+    internal_name: &str,
+    orig_filename: &str,
+) -> Vec<u8> {
+    let mut parts = pkg_ver.split('.').map(|s| s.parse::<u16>().unwrap_or(0));
+    let major = parts.next().unwrap_or(1);
+    let minor = parts.next().unwrap_or(0);
+    let patch = parts.next().unwrap_or(0);
+    let fourth = parts.next().unwrap_or(0);
+
+    let file_ver_ms = ((major as u32) << 16) | (minor as u32);
+    let file_ver_ls = ((patch as u32) << 16) | (fourth as u32);
+
+    // VS_FIXEDFILEINFO (52 bytes)
+    let mut fixed = Vec::with_capacity(52);
+    fixed.extend_from_slice(&0xFEEF_04BDu32.to_le_bytes()); // dwSignature
+    fixed.extend_from_slice(&0x0001_0000u32.to_le_bytes()); // dwStrucVersion
+    fixed.extend_from_slice(&file_ver_ms.to_le_bytes()); // dwFileVersionMS
+    fixed.extend_from_slice(&file_ver_ls.to_le_bytes()); // dwFileVersionLS
+    fixed.extend_from_slice(&file_ver_ms.to_le_bytes()); // dwProductVersionMS
+    fixed.extend_from_slice(&file_ver_ls.to_le_bytes()); // dwProductVersionLS
+    fixed.extend_from_slice(&0x0000_003Fu32.to_le_bytes()); // dwFileFlagsMask
+    fixed.extend_from_slice(&0u32.to_le_bytes()); // dwFileFlags
+    fixed.extend_from_slice(&0x0004_0004u32.to_le_bytes()); // dwFileOS = VOS_NT_WINDOWS32
+    fixed.extend_from_slice(&0x0000_0001u32.to_le_bytes()); // dwFileType = VFT_APP
+    fixed.extend_from_slice(&0u32.to_le_bytes()); // dwFileSubtype
+    fixed.extend_from_slice(&0u32.to_le_bytes()); // dwFileDateMS
+    fixed.extend_from_slice(&0u32.to_le_bytes()); // dwFileDateLS
+
+    let full_ver = format!("{major}.{minor}.{patch}.{fourth}");
+    let strings = vec![
+        build_ver_string_pair("CompanyName", "CoreFlow Project"),
+        build_ver_string_pair("FileDescription", file_desc),
+        build_ver_string_pair("FileVersion", &full_ver),
+        build_ver_string_pair("InternalName", internal_name),
+        build_ver_string_pair(
+            "LegalCopyright",
+            "Copyright (c) 2026 CoreFlow Project. MIT License.",
+        ),
+        build_ver_string_pair("OriginalFilename", orig_filename),
+        build_ver_string_pair("ProductName", "CoreFlow"),
+        build_ver_string_pair("ProductVersion", pkg_ver),
+    ];
+
+    let string_table = build_ver_node("040904B0", &[], 0, 1, &strings);
+    let string_file_info = build_ver_node("StringFileInfo", &[], 0, 1, &[string_table]);
+
+    let translation_val = [0x09u8, 0x04, 0xB0, 0x04]; // 0x0409 (en-US), 1200 (UTF-16)
+    let var_node = build_ver_node("Translation", &translation_val, 4, 0, &[]);
+    let var_file_info = build_ver_node("VarFileInfo", &[], 0, 1, &[var_node]);
+
+    build_ver_node(
+        "VS_VERSION_INFO",
+        &fixed,
+        fixed.len() as u16,
+        0,
+        &[string_file_info, var_file_info],
+    )
+}
+
+/// Builds an embedded Windows Application Manifest (`RT_MANIFEST` = 24, ID = 1)
+/// declaring Windows 10/11 compatibility and explicit `asInvoker` execution level.
+fn build_manifest_blob(pkg_ver: &str, app_name: &str, desc: &str) -> Vec<u8> {
+    let mut parts = pkg_ver.split('.').map(|s| s.parse::<u16>().unwrap_or(0));
+    let major = parts.next().unwrap_or(1);
+    let minor = parts.next().unwrap_or(0);
+    let patch = parts.next().unwrap_or(0);
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="{major}.{minor}.{patch}.0" processorArchitecture="amd64" name="{app_name}" type="win32"/>
+  <description>{desc}</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}}"/>
+      <supportedOS Id="{{1f676c76-80e1-4239-95bb-83d0f6d0da78}}"/>
+      <supportedOS Id="{{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}}"/>
+      <supportedOS Id="{{35138b9a-5d96-4fbd-8e2d-a2440225f93a}}"/>
+    </application>
+  </compatibility>
+</assembly>"#
+    );
+    xml.into_bytes()
+}
+
 /// Builds a 64-bit Windows COFF object file (`.o`) containing a `.rsrc` resource section
-/// with `RT_ICON` (3) and `RT_GROUP_ICON` (14) so MinGW `ld` / `x86_64-w64-mingw32-gcc` links
-/// the application icon directly into `CoreFlow.exe`.
-fn build_coff_rsrc_object(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
+/// with `RT_ICON` (3), `RT_GROUP_ICON` (14), `RT_VERSION` (16), and `RT_MANIFEST` (24).
+fn build_coff_rsrc_object(
+    entries: &[(u32, Vec<u8>)],
+    pkg_ver: &str,
+    file_desc: &str,
+    internal_name: &str,
+    orig_filename: &str,
+    manifest_name: &str,
+) -> Vec<u8> {
     let n_icons = entries.len();
-    let total_res = n_icons + 1; // N icons + 1 group icon
+    let total_res = n_icons + 3; // N icons + 1 group icon + 1 version info + 1 manifest
 
     // Build GRPICONDIR payload for RT_GROUP_ICON (id = 1)
     let mut grp = Vec::new();
@@ -269,24 +412,33 @@ fn build_coff_rsrc_object(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
         grp.extend_from_slice(&icon_id.to_le_bytes());
     }
 
+    let ver_blob = build_version_info_blob(pkg_ver, file_desc, internal_name, orig_filename);
+    let manifest_blob = build_manifest_blob(pkg_ver, manifest_name, file_desc);
+
     // Calculate offsets inside `.rsrc` section:
-    // Level 1: Root dir = 16 + 2 * 8 = 32 bytes (offset 0..32)
-    let off_dir_type3 = 32u32;
+    // Level 1: Root dir = 16 + 4 * 8 = 48 bytes (offset 0..48)
+    let off_dir_type3 = 48u32;
     let size_dir_type3 = 16 + (n_icons as u32) * 8;
     let off_dir_type14 = off_dir_type3 + size_dir_type3;
     let size_dir_type14 = 16 + 8;
+    let off_dir_type16 = off_dir_type14 + size_dir_type14;
+    let size_dir_type16 = 16 + 8;
+    let off_dir_type24 = off_dir_type16 + size_dir_type16;
+    let size_dir_type24 = 16 + 8;
 
     // Level 3: Language dirs (`total_res` directories, each 16 + 8 = 24 bytes)
-    let off_lang_base = off_dir_type14 + size_dir_type14;
+    let off_lang_base = off_dir_type24 + size_dir_type24;
     let off_data_entries_base = off_lang_base + (total_res as u32) * 24;
     let off_payloads_base = off_data_entries_base + (total_res as u32) * 16;
 
     let mut rsrc = Vec::new();
 
-    // 1. Level 1 Root Directory
-    write_dir_header(&mut rsrc, 2);
+    // 1. Level 1 Root Directory (sorted by Type ID: 3, 14, 16, 24)
+    write_dir_header(&mut rsrc, 4);
     write_dir_entry(&mut rsrc, 3, off_dir_type3, true); // RT_ICON = 3
     write_dir_entry(&mut rsrc, 14, off_dir_type14, true); // RT_GROUP_ICON = 14
+    write_dir_entry(&mut rsrc, 16, off_dir_type16, true); // RT_VERSION = 16
+    write_dir_entry(&mut rsrc, 24, off_dir_type24, true); // RT_MANIFEST = 24
 
     // 2. Level 2 Type 3 (RT_ICON) Directory
     write_dir_header(&mut rsrc, n_icons as u16);
@@ -300,14 +452,24 @@ fn build_coff_rsrc_object(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
     let grp_lang_off = off_lang_base + (n_icons as u32) * 24;
     write_dir_entry(&mut rsrc, 1, grp_lang_off, true);
 
-    // 4. Level 3 Language Directories
+    // 4. Level 2 Type 16 (RT_VERSION) Directory
+    write_dir_header(&mut rsrc, 1);
+    let ver_lang_off = off_lang_base + ((n_icons + 1) as u32) * 24;
+    write_dir_entry(&mut rsrc, 1, ver_lang_off, true);
+
+    // 5. Level 2 Type 24 (RT_MANIFEST) Directory
+    write_dir_header(&mut rsrc, 1);
+    let man_lang_off = off_lang_base + ((n_icons + 2) as u32) * 24;
+    write_dir_entry(&mut rsrc, 1, man_lang_off, true);
+
+    // 6. Level 3 Language Directories
     for k in 0..total_res {
         write_dir_header(&mut rsrc, 1);
         let data_entry_off = off_data_entries_base + (k as u32) * 16;
         write_dir_entry(&mut rsrc, 0x0409, data_entry_off, false);
     }
 
-    // 5. Compute payload offsets & write IMAGE_RESOURCE_DATA_ENTRY records
+    // 7. Compute payload offsets & write IMAGE_RESOURCE_DATA_ENTRY records
     let mut payloads_blob = Vec::new();
     let mut reloc_virtual_addrs = Vec::with_capacity(total_res);
 
@@ -315,6 +477,8 @@ fn build_coff_rsrc_object(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
         .iter()
         .map(|(_, d)| d.as_slice())
         .chain(std::iter::once(grp.as_slice()))
+        .chain(std::iter::once(ver_blob.as_slice()))
+        .chain(std::iter::once(manifest_blob.as_slice()))
         .enumerate()
     {
         let payload_off = off_payloads_base + (payloads_blob.len() as u32);
@@ -399,8 +563,24 @@ fn main() {
         entries.push((sz, dib));
     }
 
+    let pkg_ver = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.8".to_string());
     let ico_bytes = build_ico_file(&entries);
-    let coff_bytes = build_coff_rsrc_object(&entries);
+    let app_coff_bytes = build_coff_rsrc_object(
+        &entries,
+        &pkg_ver,
+        "CoreFlow Hardware and Gaming Performance Monitor",
+        "CoreFlow",
+        "CoreFlow.exe",
+        "CoreFlow.Monitor",
+    );
+    let setup_coff_bytes = build_coff_rsrc_object(
+        &entries,
+        &pkg_ver,
+        "CoreFlow Setup and Update Manager",
+        "CoreFlow_Setup",
+        "CoreFlow_Setup.exe",
+        "CoreFlow.Setup",
+    );
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let assets_dir = manifest_dir.join("assets");
@@ -418,10 +598,18 @@ fn main() {
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os == "windows" {
-        let obj_path = out_dir.join("coreflow_icon.o");
-        if let Ok(mut f) = File::create(&obj_path) {
-            let _ = f.write_all(&coff_bytes);
+        let app_obj_path = out_dir.join("coreflow_app_res.o");
+        if let Ok(mut f) = File::create(&app_obj_path) {
+            let _ = f.write_all(&app_coff_bytes);
         }
-        println!("cargo:rustc-link-arg-bins={}", obj_path.display());
+        let setup_obj_path = out_dir.join("coreflow_setup_res.o");
+        if let Ok(mut f) = File::create(&setup_obj_path) {
+            let _ = f.write_all(&setup_coff_bytes);
+        }
+        println!("cargo:rustc-link-arg-bin=CoreFlow={}", app_obj_path.display());
+        println!(
+            "cargo:rustc-link-arg-bin=CoreFlow_Setup={}",
+            setup_obj_path.display()
+        );
     }
 }
