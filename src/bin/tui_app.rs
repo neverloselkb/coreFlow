@@ -5590,6 +5590,11 @@ fn handle_legacy_silent_update(args: &[String]) -> bool {
         );
     }
 
+    // 언인스톨러(Uninstall_CoreFlow.exe) 및 Windows '설치된 앱' 레지스트리 버전도 함께 최신화
+    let uninst_exe = target_dir.join("Uninstall_CoreFlow.exe");
+    sync_uninstaller_registry(&target_dir, &target_exe, &uninst_exe);
+    let _ = refresh_uninstaller_binary_if_outdated(&target_dir);
+
     append_watchdog_log("설치 경로 자가 복구 완료 → 설치된 최신 버전으로 재실행");
     let _ = Command::new(&target_exe).current_dir(&target_dir).spawn();
     true
@@ -5600,7 +5605,122 @@ fn handle_legacy_silent_update(_args: &[String]) -> bool {
     false
 }
 
-/// 시작 프로그램 레지스트리가 현재 실행 중인 설치본을 가리키도록 동기화
+#[cfg(target_os = "windows")]
+fn sync_uninstaller_registry(
+    install_dir: &std::path::Path,
+    exe_path: &std::path::Path,
+    uninst_path: &std::path::Path,
+) {
+    let uninst_key = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CoreFlow";
+    let cur_ver = reg_read_string(HKEY_CURRENT_USER, uninst_key, "DisplayVersion");
+    if cur_ver.is_none() && !uninst_path.exists() {
+        return;
+    }
+    if cur_ver.as_deref() != Some(APP_VERSION) {
+        let _ = reg_write_string(HKEY_CURRENT_USER, uninst_key, "DisplayVersion", APP_VERSION);
+        let _ = reg_write_string(
+            HKEY_CURRENT_USER,
+            uninst_key,
+            "DisplayName",
+            "CoreFlow — 시스템 모니터링 & 게이밍 스튜디오",
+        );
+        let _ = reg_write_string(HKEY_CURRENT_USER, uninst_key, "Publisher", "CoreFlow Project");
+        let _ = reg_write_string(
+            HKEY_CURRENT_USER,
+            uninst_key,
+            "DisplayIcon",
+            &exe_path.to_string_lossy(),
+        );
+        let _ = reg_write_string(
+            HKEY_CURRENT_USER,
+            uninst_key,
+            "InstallLocation",
+            &install_dir.to_string_lossy(),
+        );
+        if uninst_path.exists() {
+            let uninst_cmd = format!("\"{}\" --uninstall", uninst_path.to_string_lossy());
+            let _ = reg_write_string(HKEY_CURRENT_USER, uninst_key, "UninstallString", &uninst_cmd);
+            let _ = reg_write_string(
+                HKEY_CURRENT_USER,
+                uninst_key,
+                "QuietUninstallString",
+                &uninst_cmd,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_uninstaller_binary_up_to_date(uninst_path: &std::path::Path) -> bool {
+    let Ok(bytes) = std::fs::read(uninst_path) else {
+        return false;
+    };
+    let expected_badge = format!("v{} Release", APP_VERSION);
+    let needle = expected_badge.as_bytes();
+    if bytes.windows(needle.len()).any(|w| w == needle) {
+        return true;
+    }
+    // VS_VERSIONINFO 내 UTF-16LE "ProductVersion\0" + APP_VERSION 확인
+    let mut utf16_needle = Vec::new();
+    for ch in "ProductVersion\0".encode_utf16() {
+        utf16_needle.extend_from_slice(&ch.to_le_bytes());
+    }
+    for ch in APP_VERSION.encode_utf16().chain(std::iter::once(0)) {
+        utf16_needle.extend_from_slice(&ch.to_le_bytes());
+    }
+    bytes
+        .windows(utf16_needle.len())
+        .any(|w| w == utf16_needle.as_slice())
+}
+
+#[cfg(target_os = "windows")]
+fn refresh_uninstaller_binary_if_outdated(install_dir: &std::path::Path) -> bool {
+    let uninst_path = install_dir.join("Uninstall_CoreFlow.exe");
+    if !uninst_path.exists() || is_uninstaller_binary_up_to_date(&uninst_path) {
+        return true;
+    }
+    let setup_url = format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/v{APP_VERSION}/CoreFlow_Setup.exe"
+    );
+    let tmp_setup = std::env::temp_dir().join("CoreFlow_Uninstaller_Sync.exe");
+    let _ = std::fs::remove_file(&tmp_setup);
+
+    let ok = Command::new("curl.exe")
+        .args([
+            "-sL",
+            "--fail",
+            "--max-time",
+            "60",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            "-o",
+        ])
+        .arg(&tmp_setup)
+        .arg(&setup_url)
+        .no_window()
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !ok || verify_downloaded_installer(&tmp_setup, &setup_url).is_err() {
+        let _ = std::fs::remove_file(&tmp_setup);
+        return false;
+    }
+
+    let old_uninst = install_dir.join("Uninstall_CoreFlow.old");
+    let _ = std::fs::remove_file(&old_uninst);
+    let mut copied = std::fs::copy(&tmp_setup, &uninst_path).is_ok();
+    if !copied {
+        if std::fs::rename(&uninst_path, &old_uninst).is_ok() {
+            copied = std::fs::copy(&tmp_setup, &uninst_path).is_ok();
+            let _ = std::fs::remove_file(&old_uninst);
+        }
+    }
+    let _ = std::fs::remove_file(&tmp_setup);
+    copied
+}
+
+/// 시작 프로그램 레지스트리 및 설치된 언인스톨러 버전 정보를 현재 실행 중인 설치본과 동기화
 /// (설치 관리자가 등록한 `CoreFlowMonitor` 항목과 앱이 등록한 `CoreFlow` 항목을 하나로 통합)
 #[cfg(target_os = "windows")]
 fn sync_startup_registry_path() {
@@ -5613,6 +5733,18 @@ fn sync_startup_registry_path() {
     if exe_l.starts_with(&tmp.to_string_lossy().to_ascii_lowercase()) || exe_l.contains(r"\temp\") {
         return;
     }
+
+    if let Some(dir) = exe.parent() {
+        let uninst_path = dir.join("Uninstall_CoreFlow.exe");
+        sync_uninstaller_registry(dir, &exe, &uninst_path);
+        if uninst_path.exists() && !is_uninstaller_binary_up_to_date(&uninst_path) {
+            let dir_owned = dir.to_path_buf();
+            thread::spawn(move || {
+                let _ = refresh_uninstaller_binary_if_outdated(&dir_owned);
+            });
+        }
+    }
+
     let run_key = r"Software\Microsoft\Windows\CurrentVersion\Run";
     let cur = reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlow");
     let legacy = reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlowMonitor");

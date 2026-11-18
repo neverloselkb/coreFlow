@@ -706,14 +706,28 @@ fn perform_install(
         EMBEDDED_COREFLOW_EXE.len() as f64 / (1024.0 * 1024.0)
     ));
 
-    // 4. 언인스톨러(Uninstall_CoreFlow.exe) 복사
+    // 4. 언인스톨러(Uninstall_CoreFlow.exe) 최신 버전으로 복사·교체
     let uninst_path = install_dir.join("Uninstall_CoreFlow.exe");
     if let Ok(self_exe) = env::current_exe() {
-        if self_exe != uninst_path {
-            let _ = fs::copy(&self_exe, &uninst_path);
+        let same_uninst = fs::canonicalize(&self_exe)
+            .ok()
+            .zip(fs::canonicalize(&uninst_path).ok())
+            .map(|(a, b)| a == b)
+            .unwrap_or(false);
+        if !same_uninst {
+            let old_uninst = install_dir.join("Uninstall_CoreFlow.old");
+            let _ = fs::remove_file(&old_uninst);
+            if fs::copy(&self_exe, &uninst_path).is_err() {
+                let _ = fs::rename(&uninst_path, &old_uninst);
+                let _ = fs::copy(&self_exe, &uninst_path);
+                let _ = fs::remove_file(&old_uninst);
+            }
         }
     }
-    steps.push("전용 언인스톨러 (Uninstall_CoreFlow.exe) 생성 완료".to_string());
+    steps.push(format!(
+        "전용 언인스톨러 (Uninstall_CoreFlow.exe v{}) 갱신 완료",
+        env!("CARGO_PKG_VERSION")
+    ));
 
     // 5. 기존 사용자 데이터 마이그레이션
     if opt_migrate {
@@ -1067,7 +1081,7 @@ fn handle_client(
                 if initial_uninstall_mode { "true" } else { "false" },
             )
             .replace("__PACKAGE_SIZE_MB__", &pkg_mb)
-            .replace("v1.0.0 Release", &format!("v{} Release", env!("CARGO_PKG_VERSION")));
+            .replace("v1.0.0 Release", concat!("v", env!("CARGO_PKG_VERSION"), " Release"));
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             html.len(),
