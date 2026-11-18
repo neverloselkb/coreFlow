@@ -726,12 +726,35 @@ fn perform_install(
     let _ = fs::create_dir_all(&logs_dir);
     steps.push(format!("설치 디렉토리 생성 완료: {}", install_dir.display()));
 
-    // 3. CoreFlow.exe 및 아이콘 추출
+    // 3. CoreFlow.exe 및 아이콘 추출 (잠금 시 .old 이름 변경 폴백 및 최대 10회 재시도)
     let exe_path = install_dir.join("CoreFlow.exe");
+    let old_exe_path = install_dir.join("CoreFlow.old");
     let ico_path = assets_dir.join("coreflow.ico");
     let root_ico_path = install_dir.join("coreflow.ico");
 
-    if let Err(e) = fs::write(&exe_path, EMBEDDED_COREFLOW_EXE) {
+    let _ = fs::remove_file(&old_exe_path);
+    let mut write_err = None;
+    for _ in 0..10 {
+        match fs::write(&exe_path, EMBEDDED_COREFLOW_EXE) {
+            Ok(_) => {
+                write_err = None;
+                break;
+            }
+            Err(e) => {
+                write_err = Some(e);
+                let _ = fs::remove_file(&old_exe_path);
+                if fs::rename(&exe_path, &old_exe_path).is_ok() {
+                    if fs::write(&exe_path, EMBEDDED_COREFLOW_EXE).is_ok() {
+                        let _ = fs::remove_file(&old_exe_path);
+                        write_err = None;
+                        break;
+                    }
+                }
+                thread::sleep(Duration::from_millis(300));
+            }
+        }
+    }
+    if let Some(e) = write_err {
         return format!(
             r#"{{"ok":false,"error":"CoreFlow.exe 파일 쓰기 실패: {}"}}"#,
             escape_json(&e.to_string())
@@ -1253,6 +1276,28 @@ fn handle_client(
     }
 }
 
+fn extract_dir_arg(args: &[String]) -> Option<String> {
+    let idx = args.iter().position(|a| a == "--dir")?;
+    let mut parts = Vec::new();
+    for token in &args[idx + 1..] {
+        if token.starts_with("--") || token.starts_with('/') {
+            break;
+        }
+        parts.push(token.trim_matches('"').to_string());
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let joined = parts.join(" ").trim().trim_end_matches('\\').to_string();
+    if joined.is_empty() {
+        return None;
+    }
+    if joined.eq_ignore_ascii_case(r"C:\Program") {
+        return Some(r"C:\Program Files\CoreFlow".to_string());
+    }
+    Some(joined)
+}
+
 pub fn main() {
     let args: Vec<String> = env::args().collect();
     let self_exe_opt = env::current_exe().ok();
@@ -1265,7 +1310,7 @@ pub fn main() {
         exe_is_uninstaller || args.iter().any(|a| a == "--uninstall" || a == "/uninstall");
     let silent_update_mode = args.iter().any(|a| a == "--silent-update");
     let already_elevated = args.iter().any(|a| a == "--elevated");
-    let mut custom_dir_arg = args.windows(2).find(|w| w[0] == "--dir").map(|w| w[1].clone());
+    let mut custom_dir_arg = extract_dir_arg(&args);
 
     if custom_dir_arg.is_none() && exe_is_uninstaller {
         if let Some(parent) = self_exe_opt.as_ref().and_then(|p| p.parent()) {

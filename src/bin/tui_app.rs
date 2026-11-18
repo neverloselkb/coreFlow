@@ -1231,10 +1231,16 @@ fn verify_downloaded_installer(
         .output()
     {
         let body = String::from_utf8_lossy(&out.stdout);
-        // 해당 다운로드 URL이 포함된 에셋 블록에서 "digest": "sha256:..." 추출
+        // 해당 다운로드 URL이 포함된 에셋 블록에서 "digest": "sha256:..." 추출 (UTF-8 문자 경계 안전 슬라이싱)
         if let Some(url_pos) = body.find(download_url) {
-            let window_start = url_pos.saturating_sub(600);
-            let window_end = (url_pos + download_url.len() + 300).min(body.len());
+            let mut window_start = url_pos.saturating_sub(600);
+            while window_start > 0 && !body.is_char_boundary(window_start) {
+                window_start -= 1;
+            }
+            let mut window_end = (url_pos + download_url.len() + 300).min(body.len());
+            while window_end < body.len() && !body.is_char_boundary(window_end) {
+                window_end += 1;
+            }
             let slice = &body[window_start..window_end];
             if let Some(digest_raw) = extract_json_str_field(slice, "digest") {
                 if let Some(expected_hex) = digest_raw.strip_prefix("sha256:") {
@@ -1291,10 +1297,13 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         );
     }
 
-    let current_install_dir = std::env::current_exe()
+    let mut current_install_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
         .unwrap_or_else(|| r"C:\Program Files\CoreFlow".to_string());
+    if current_install_dir.trim_end_matches('\\').eq_ignore_ascii_case(r"C:\Program") {
+        current_install_dir = r"C:\Program Files\CoreFlow".to_string();
+    }
 
     if let Ok(guard) = state.lock() {
         save_game_sessions(&guard.game_sessions);
@@ -1302,6 +1311,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
 
     let spawn_res = Command::new(&tmp_installer)
         .args(["--silent-update", "--dir", &current_install_dir])
+        .current_dir(std::env::temp_dir())
         .no_window()
         .spawn();
 
@@ -1309,10 +1319,15 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         return r#"{"ok":false,"error":"업데이트 설치 마법사 실행에 실패했습니다."}"#.to_string();
     }
 
-    // 350ms 후 현재 UI 창을 닫고 프로세스를 종료하여 업데이트 설치기가 파일을 교체할 수 있도록 함
+    // 200ms 후 현재 UI 창에 닫기 신호를 보내고 즉시 종료하여 설치기가 파일 잠금 없이 교체할 수 있도록 함
     thread::spawn(|| {
-        thread::sleep(Duration::from_millis(350));
-        close_stale_app_window();
+        thread::sleep(Duration::from_millis(200));
+        let hwnd = find_app_window();
+        if hwnd != 0 {
+            unsafe {
+                let _ = PostMessageW(hwnd, 0x0010, 0, 0);
+            }
+        }
         std::process::exit(0);
     });
 
@@ -5490,10 +5505,25 @@ fn handle_legacy_silent_update(args: &[String]) -> bool {
     }
     let already_elevated = args.iter().any(|a| a == "--heal-elevated");
     let dir = args
-        .windows(2)
-        .find(|w| w[0] == "--dir")
-        .map(|w| w[1].trim().trim_matches('"').trim_end_matches('\\').to_string())
-        .filter(|d| !d.is_empty())
+        .iter()
+        .position(|a| a == "--dir")
+        .and_then(|idx| {
+            let mut parts = Vec::new();
+            for tok in &args[idx + 1..] {
+                if tok.starts_with("--") || tok.starts_with('/') {
+                    break;
+                }
+                parts.push(tok.trim_matches('"').to_string());
+            }
+            let joined = parts.join(" ").trim().trim_end_matches('\\').to_string();
+            if joined.is_empty() {
+                None
+            } else if joined.eq_ignore_ascii_case(r"C:\Program") {
+                Some(r"C:\Program Files\CoreFlow".to_string())
+            } else {
+                Some(joined)
+            }
+        })
         .unwrap_or_else(|| r"C:\Program Files\CoreFlow".to_string());
 
     let Ok(self_exe) = std::env::current_exe() else {
