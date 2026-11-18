@@ -141,11 +141,25 @@ jobs:
             release-assets/CoreFlow_Setup.exe
             release-assets/CoreFlow-macOS-universal.zip
           tag_name: ${{ github.ref_name }}
-          name: CoreFlow ${{ github.ref_name }} — 미니 HUD 투명도 슬라이더, CPU/GPU 온도 통합 모니터링 및 하드웨어 호환성 강화
+          name: CoreFlow ${{ github.ref_name }} — 업데이트 후 재부팅 시 구버전 롤백 문제 근본 해결
           body: |
             ## 🚀 CoreFlow ${{ github.ref_name }} 릴리스 노트
 
-            CoreFlow ${{ github.ref_name }}는 **미니 HUD 실시간 투명도 슬라이더 바**, **CPU/GPU 점유율 및 온도 통합 모니터링 표기**, **AMD Ryzen / Radeon 및 Intel Arc 호환성 강화**, 그리고 **자동 업데이트 프로세스 안정성 개선**을 포함한 주요 기능 업데이트 버전입니다.
+            CoreFlow ${{ github.ref_name }}는 **자동 업데이트 후 윈도우를 재부팅하면 이전 버전(1.0.5 등)으로 되돌아가던 문제**를 근본적으로 해결한 안정성 업데이트입니다.
+
+            ---
+
+            ### 🛠️ v1.0.7 업데이트 롤백 문제 해결
+            - **원인**: v1.0.5 이하의 업데이터가 설치 관리자(`CoreFlow_Setup.exe`) 대신 포터블 `CoreFlow.exe`를 내려받아 임시 폴더(`%TEMP%`)에서 실행했기 때문에, 새 버전은 임시 폴더에서만 실행되고 설치 폴더에는 구버전이 남아 재부팅 시 구버전이 실행되었습니다.
+            - **설치 경로 자가 복구**: 구버전 업데이터로 실행된 경우에도 새 버전이 스스로 설치 폴더(`C:\Program Files\CoreFlow`)의 실행 파일을 교체한 뒤 설치된 경로에서 재실행합니다. (필요 시 관리자 권한 확인 창이 표시될 수 있습니다)
+            - **시작 프로그램 항목 통합**: 설치 관리자(`CoreFlowMonitor`)와 앱(`CoreFlow`)이 따로 등록하던 시작 프로그램 항목을 하나로 통합하고, 실행 시 항상 현재 설치본 경로로 자동 동기화합니다.
+            - **업데이트 시 자동 실행 설정 유지**: 자동 업데이트 과정에서 '윈도우 시작 시 자동 실행' 설정이 해제되던 문제를 수정했습니다.
+
+            > 💡 v1.0.5 이하 사용자도 앱 내 업데이트 버튼으로 v1.0.7을 설치하면 자동으로 복구됩니다.
+
+            ---
+
+            ## 📋 v1.0.6 주요 변경 사항 (이전 릴리스 포함 내용)
 
             ---
 
