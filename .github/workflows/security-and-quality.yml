@@ -1,0 +1,42 @@
+name: Security & Code Quality Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # 매주 월요일 03:00 UTC에 정기 보안 취약점 스캔 실행
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rustsec-audit:
+    name: RustSec Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cargo-audit (RustSec Advisory DB)
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  code-quality-windows:
+    name: Windows Compilation & Static Quality Check
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify CoreFlow & Setup Compiler Checks (0 Warnings Policy)
+        run: |
+          cargo check --bin CoreFlow
+          cargo check --bin CoreFlow_Setup
