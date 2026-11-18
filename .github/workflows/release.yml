@@ -141,15 +141,22 @@ jobs:
             release-assets/CoreFlow_Setup.exe
             release-assets/CoreFlow-macOS-universal.zip
           tag_name: ${{ github.ref_name }}
-          name: CoreFlow ${{ github.ref_name }} — 업데이트 후 재부팅 시 구버전 롤백 문제 근본 해결
+          name: CoreFlow ${{ github.ref_name }} — Windows 백신 오탐 방지 강화 (VERSIONINFO·매니페스트 내장 및 SHA-256 무결성 검증)
           body: |
             ## 🚀 CoreFlow ${{ github.ref_name }} 릴리스 노트
 
-            CoreFlow ${{ github.ref_name }}는 **자동 업데이트 후 윈도우를 재부팅하면 이전 버전(1.0.5 등)으로 되돌아가던 문제**를 근본적으로 해결한 안정성 업데이트입니다.
+            CoreFlow ${{ github.ref_name }}는 **Windows Defender 등 백신의 오탐(False Positive) 가능성을 낮추기 위한 실행 파일 메타데이터 내장, 업데이트 파일 SHA-256 무결성 검증, 그리고 불필요한 외부 셸 호출 제거**를 포함한 보안·신뢰성 강화 업데이트입니다.
 
             ---
 
-            ### 🛠️ v1.0.7 업데이트 롤백 문제 해결
+            ### 🛡️ v1.0.8 Windows 보안 및 백신 오탐 방지 개선
+            - **PE 버전 리소스(`VS_VERSIONINFO`) 및 매니페스트(`RT_MANIFEST`) 내장**: `CoreFlow.exe`와 `CoreFlow_Setup.exe`에 제품명·파일 설명·버전·저작권·원본 파일명 메타데이터와 Windows 10/11 호환성 매니페스트(`asInvoker`)를 정식 내장하여 출처 불명 실행 파일로 분류되는 정적 오탐 요인을 해소했습니다.
+            - **업데이트 파일 SHA-256 해시 및 PE64 헤더 무결성 검증**: 자동 업데이트 다운로드 직후 실행 전에 유효한 64비트 Windows PE 헤더(`MZ` / `PE\0\0` / `AMD64`)인지 확인하고, GitHub Releases API의 공식 `sha256` 다이제스트와 해시가 일치하는지 검증합니다.
+            - **표준 Win32 API 전환 (의심 셸 호출 제거)**: 백신의 행위 기반 탐지를 유발할 수 있던 숨김 `powershell.exe`, `cmd.exe /C start`, `net.exe localgroup`, `taskkill.exe` 호출을 모두 제거하고 표준 Win32 API(`ShellExecuteW` 등) 직접 호출로 대체했습니다.
+
+            ---
+
+            ### 🛠️ v1.0.7 업데이트 롤백 문제 해결 (이전 버전 포함 내용)
             - **원인**: v1.0.5 이하의 업데이터가 설치 관리자(`CoreFlow_Setup.exe`) 대신 포터블 `CoreFlow.exe`를 내려받아 임시 폴더(`%TEMP%`)에서 실행했기 때문에, 새 버전은 임시 폴더에서만 실행되고 설치 폴더에는 구버전이 남아 재부팅 시 구버전이 실행되었습니다.
             - **설치 경로 자가 복구**: 구버전 업데이터로 실행된 경우에도 새 버전이 스스로 설치 폴더(`C:\Program Files\CoreFlow`)의 실행 파일을 교체한 뒤 설치된 경로에서 재실행합니다. (필요 시 관리자 권한 확인 창이 표시될 수 있습니다)
             - **시작 프로그램 항목 통합**: 설치 관리자(`CoreFlowMonitor`)와 앱(`CoreFlow`)이 따로 등록하던 시작 프로그램 항목을 하나로 통합하고, 실행 시 항상 현재 설치본 경로로 자동 동기화합니다.
