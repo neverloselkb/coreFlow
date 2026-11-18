@@ -5735,6 +5735,8 @@ fn sync_startup_registry_path() {
     }
 
     if let Some(dir) = exe.parent() {
+        let _ = std::fs::remove_file(dir.join("CoreFlow.old"));
+        let _ = std::fs::remove_file(dir.join("Uninstall_CoreFlow.old"));
         let uninst_path = dir.join("Uninstall_CoreFlow.exe");
         sync_uninstaller_registry(dir, &exe, &uninst_path);
         if uninst_path.exists() && !is_uninstaller_binary_up_to_date(&uninst_path) {

@@ -836,11 +836,24 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
     unregister_uninstaller();
     steps.push("Windows 시작프로그램 및 설치 정보 레지스트리 제거 완료".to_string());
 
-    // 파일 삭제
-    let _ = fs::remove_file(install_dir.join("CoreFlow.exe"));
-    let _ = fs::remove_file(install_dir.join("coreflow.ico"));
+    // 파일 삭제 (잠금 해제 대기 포함 최대 6회 재시도)
+    for bin_name in [
+        "CoreFlow.exe",
+        "CoreFlow.old",
+        "Uninstall_CoreFlow.exe",
+        "Uninstall_CoreFlow.old",
+        "coreflow.ico",
+    ] {
+        let p = install_dir.join(bin_name);
+        for _ in 0..6 {
+            if !p.exists() || fs::remove_file(&p).is_ok() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(150));
+        }
+    }
     let _ = fs::remove_dir_all(install_dir.join("assets"));
-    steps.push("CoreFlow 실행 파일 및 리소스 제거 완료".to_string());
+    steps.push("CoreFlow 실행 파일, 언인스톨러 및 리소스 제거 완료".to_string());
 
     if !keep_user_data {
         let _ = fs::remove_dir_all(install_dir.join("logs"));
@@ -856,8 +869,20 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         ] {
             let _ = fs::remove_file(install_dir.join(f));
         }
-        let _ = fs::remove_dir(&install_dir);
-        steps.push("사용자 설정 및 로그 데이터 전체 삭제 완료".to_string());
+        // 설치 폴더(C:\Program Files\CoreFlow) 자체까지 완전히 삭제 (최대 6회 재시도)
+        for _ in 0..6 {
+            if !install_dir.exists()
+                || fs::remove_dir_all(&install_dir).is_ok()
+                || fs::remove_dir(&install_dir).is_ok()
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        steps.push(format!(
+            "사용자 데이터 및 설치 폴더({}) 전체 삭제 완료",
+            install_dir.display()
+        ));
     } else {
         steps.push("사용자 설정 및 게임 플레이 로그(logs/)는 안전하게 보존됨".to_string());
     }
@@ -940,6 +965,16 @@ fn spawn_window_icon_applier() {
     });
 }
 
+fn close_setup_window() {
+    let title_w = to_wide_null("CoreFlow Setup — 설치 및 관리 마법사");
+    unsafe {
+        let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
+        if hwnd != 0 {
+            let _ = PostMessageW(hwnd, 0x0010, 0, 0); // WM_CLOSE
+        }
+    }
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -952,6 +987,7 @@ fn handle_client(
     last_hb: &AtomicU64,
     connected: &AtomicBool,
     initial_uninstall_mode: bool,
+    initial_dir_override: Option<&str>,
 ) {
     let mut buf = [0u8; 8192];
     let Ok(n) = stream.read(&mut buf) else {
@@ -1018,6 +1054,14 @@ fn handle_client(
             json
         );
         let _ = stream.write_all(resp.as_bytes());
+        let _ = stream.flush();
+        // 제거 완료 후 안내 메시지를 잠시 보여준 뒤 창과 언인스톨러 프로세스를 자동으로 종료
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(1200));
+            close_setup_window();
+            thread::sleep(Duration::from_millis(150));
+            std::process::exit(0);
+        });
     } else if first_line.starts_with("POST /api/browse_dir") {
         let current = parse_query_str(first_line, "current")
             .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
@@ -1064,11 +1108,15 @@ fn handle_client(
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
         let _ = stream.write_all(resp.as_bytes());
         let _ = stream.flush();
+        close_setup_window();
         thread::sleep(Duration::from_millis(120));
         std::process::exit(0);
     } else {
-        let def_dir = default_install_dir();
-        let already_installed = def_dir.join("CoreFlow.exe").exists();
+        let def_dir = initial_dir_override
+            .map(PathBuf::from)
+            .unwrap_or_else(default_install_dir);
+        let already_installed =
+            def_dir.join("CoreFlow.exe").exists() || def_dir.join("Uninstall_CoreFlow.exe").exists();
         let pkg_mb = format!(
             "{:.2}",
             (EMBEDDED_COREFLOW_EXE.len() + EMBEDDED_ICON_ICO.len()) as f64 / (1024.0 * 1024.0)
@@ -1093,15 +1141,32 @@ fn handle_client(
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();
-    let initial_uninstall_mode = args.iter().any(|a| a == "--uninstall" || a == "/uninstall");
+    let self_exe_opt = env::current_exe().ok();
+    let exe_is_uninstaller = self_exe_opt
+        .as_ref()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()))
+        .map(|n| n.contains("uninstall"))
+        .unwrap_or(false);
+    let initial_uninstall_mode =
+        exe_is_uninstaller || args.iter().any(|a| a == "--uninstall" || a == "/uninstall");
     let silent_update_mode = args.iter().any(|a| a == "--silent-update");
     let already_elevated = args.iter().any(|a| a == "--elevated");
-    let custom_dir_arg = args.windows(2).find(|w| w[0] == "--dir").map(|w| w[1].clone());
+    let mut custom_dir_arg = args.windows(2).find(|w| w[0] == "--dir").map(|w| w[1].clone());
 
-    // C:\Program Files\CoreFlow 설치를 위해 관리자 권한이 아닌 경우 UAC 권한 상승 요청
+    if custom_dir_arg.is_none() && exe_is_uninstaller {
+        if let Some(parent) = self_exe_opt.as_ref().and_then(|p| p.parent()) {
+            let tmp_l = env::temp_dir().to_string_lossy().to_ascii_lowercase();
+            let par_l = parent.to_string_lossy().to_ascii_lowercase();
+            if !par_l.starts_with(&tmp_l) && !par_l.contains(r"\temp") {
+                custom_dir_arg = Some(parent.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // C:\Program Files\CoreFlow 설치/제거를 위해 관리자 권한이 아닌 경우 UAC 권한 상승 요청
     unsafe {
         if IsUserAnAdmin() == 0 && !already_elevated {
-            if let Ok(exe) = env::current_exe() {
+            if let Some(ref exe) = self_exe_opt {
                 let op_w = to_wide_null("runas");
                 let exe_w = to_wide_null(&exe.to_string_lossy());
                 let mut param_str = String::from("--elevated");
@@ -1115,7 +1180,7 @@ pub fn main() {
                     param_str.push_str(&format!(" --dir \"{}\"", d));
                 }
                 let param_w = to_wide_null(&param_str);
-                let cur_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let cur_dir = env::temp_dir();
                 let dir_w = to_wide_null(&cur_dir.to_string_lossy());
                 let res = ShellExecuteW(
                     0,
@@ -1131,6 +1196,39 @@ pub fn main() {
             }
         }
     }
+
+    // 언인스톨러가 설치 폴더(C:\Program Files\CoreFlow\Uninstall_CoreFlow.exe)에서 직접 실행된 경우,
+    // 자기 자신과 설치 폴더까지 완전히 삭제할 수 있도록 %TEMP%로 복제 실행 후 원본 프로세스는 즉시 종료
+    if initial_uninstall_mode && !silent_update_mode {
+        if let Some(ref exe) = self_exe_opt {
+            let tmp_dir = env::temp_dir();
+            let exe_l = exe.to_string_lossy().to_ascii_lowercase();
+            let tmp_l = tmp_dir.to_string_lossy().to_ascii_lowercase();
+            if !exe_l.starts_with(&tmp_l) && !exe_l.contains(r"\temp\") {
+                let host_exe = tmp_dir.join("CoreFlow_Uninstaller_Host.exe");
+                let _ = fs::remove_file(&host_exe);
+                if fs::copy(exe, &host_exe).is_ok() {
+                    let target_dir = custom_dir_arg.clone().unwrap_or_else(|| {
+                        exe.parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string())
+                    });
+                    if Command::new(&host_exe)
+                        .args(["--elevated", "--uninstall", "--dir", &target_dir])
+                        .current_dir(&tmp_dir)
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .spawn()
+                        .is_ok()
+                    {
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
+    }
+
+    // 작업 디렉토리를 %TEMP%로 이동하여 설치 폴더(C:\Program Files\CoreFlow)가 잠기지 않도록 보장
+    let _ = env::set_current_dir(env::temp_dir());
 
     // 자동 업데이트 모드 (--silent-update): GUI 창 없이 즉시 기존 경로(또는 --dir 경로)에 덮어쓰기 업데이트 후 재실행
     if silent_update_mode {
@@ -1176,8 +1274,15 @@ pub fn main() {
     for stream in listener.incoming().flatten() {
         let hb = Arc::clone(&last_hb);
         let conn = Arc::clone(&connected);
+        let dir_ovr = custom_dir_arg.clone();
         thread::spawn(move || {
-            handle_client(stream, &hb, &conn, initial_uninstall_mode);
+            handle_client(
+                stream,
+                &hb,
+                &conn,
+                initial_uninstall_mode,
+                dir_ovr.as_deref(),
+            );
         });
     }
 }
@@ -1610,11 +1715,15 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     if (data.ok) {
       pFill.style.width = '100%';
       pPct.textContent = '100%';
-      pTitle.textContent = '✅ CoreFlow 제거가 완료되었습니다.';
+      pTitle.textContent = '✅ CoreFlow 제거가 완료되었습니다. (창이 자동으로 닫힙니다...)';
       logEl.innerHTML = (data.steps || []).map(s => `<div>✓ ${s}</div>`).join('');
       document.getElementById('installed-badge').style.display = 'none';
       document.getElementById('btn-uninstall').style.display = 'none';
-      document.getElementById('btn-install').textContent = '✨ 지금 설치하기';
+      document.getElementById('btn-open-dir').style.display = 'none';
+      document.getElementById('btn-install').style.display = 'none';
+      setTimeout(() => {
+        quitSetup();
+      }, 900);
     }
   }
 
