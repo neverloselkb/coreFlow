@@ -2168,6 +2168,7 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
                 "-l",
                 "1",
             ])
+            .current_dir(std::env::temp_dir())
             .no_window()
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

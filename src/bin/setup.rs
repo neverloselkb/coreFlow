@@ -525,7 +525,34 @@ fn stop_running_coreflow() -> usize {
     const WM_CLOSE: u32 = 0x0010;
     let app_title_w = to_wide_null("CoreFlow — 시스템 모니터링 & 집중 스튜디오");
     for _ in 0..8 {
-        let hwnd = unsafe { FindWindowW(std::ptr::null(), app_title_w.as_ptr()) };
+        let mut hwnd = unsafe { FindWindowW(std::ptr::null(), app_title_w.as_ptr()) };
+        if hwnd == 0 {
+            unsafe {
+                let mut child: isize = 0;
+                loop {
+                    child = FindWindowExW(0, child, std::ptr::null(), std::ptr::null());
+                    if child == 0 {
+                        break;
+                    }
+                    if IsWindowVisible(child) == 0 {
+                        continue;
+                    }
+                    let len = GetWindowTextLengthW(child);
+                    if len <= 0 {
+                        continue;
+                    }
+                    let mut buf = vec![0u16; (len as usize) + 1];
+                    let read_len = GetWindowTextW(child, buf.as_mut_ptr(), buf.len() as i32);
+                    if read_len > 0 {
+                        let text = String::from_utf16_lossy(&buf[..read_len as usize]);
+                        if text.starts_with("CoreFlow — 시스템 모니터링") {
+                            hwnd = child;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         if hwnd == 0 {
             break;
         }
@@ -535,7 +562,7 @@ fn stop_running_coreflow() -> usize {
         thread::sleep(Duration::from_millis(120));
     }
 
-    // 2. 실행 중인 모든 CoreFlow.exe (감시자 및 워커) 프로세스 종료
+    // 2. 실행 중인 모든 CoreFlow.exe (감시자 및 워커) 및 하위 nvidia-smi 상주 프로세스 종료
     let mut sys = System::new_all();
     sys.refresh_all();
     let my_pid = std::process::id();
@@ -549,6 +576,8 @@ fn stop_running_coreflow() -> usize {
             if proc_info.kill() {
                 killed += 1;
             }
+        } else if name_lower == "nvidia-smi.exe" || name_lower == "nvidia-smi" {
+            let _ = proc_info.kill();
         }
     }
 
