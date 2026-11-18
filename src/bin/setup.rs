@@ -175,6 +175,14 @@ extern "system" {
         cb_data: u32,
     ) -> i32;
     fn RegDeleteValueW(h_key: isize, lp_value_name: *const u16) -> i32;
+    fn RegQueryValueExW(
+        h_key: isize,
+        lp_value_name: *const u16,
+        lp_reserved: *mut u32,
+        lp_type: *mut u32,
+        lp_data: *mut u8,
+        lpcb_data: *mut u32,
+    ) -> i32;
     fn RegDeleteKeyW(h_key: isize, lp_sub_key: *const u16) -> i32;
     fn RegCloseKey(h_key: isize) -> i32;
 }
@@ -198,6 +206,7 @@ extern "system" {
 
 const HKEY_CURRENT_USER: isize = -2147483647i32 as isize;
 const KEY_SET_VALUE: u32 = 0x0002;
+const KEY_QUERY_VALUE: u32 = 0x0001;
 const KEY_WRITE: u32 = 0x20006;
 const REG_SZ: u32 = 1;
 const REG_DWORD: u32 = 4;
@@ -341,18 +350,44 @@ fn unregister_uninstaller() {
 
 fn set_startup_autorun(enable: bool, exe_path: &Path) {
     let subkey = to_wide_null("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-    let val_name = to_wide_null("CoreFlowMonitor");
+    let legacy_name = to_wide_null("CoreFlowMonitor");
+    let val_name = to_wide_null("CoreFlow");
     let mut hkey: isize = 0;
     unsafe {
         if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_SET_VALUE, &mut hkey) == 0 {
+            // 구버전 설치 관리자 항목(CoreFlowMonitor)은 항상 정리하고 앱과 동일한 'CoreFlow' 항목으로 통합
+            let _ = RegDeleteValueW(hkey, legacy_name.as_ptr());
             if enable {
                 let cmd = format!("\"{}\"", exe_path.to_string_lossy());
-                reg_set_sz(hkey, "CoreFlowMonitor", &cmd);
+                reg_set_sz(hkey, "CoreFlow", &cmd);
             } else {
                 let _ = RegDeleteValueW(hkey, val_name.as_ptr());
             }
             let _ = RegCloseKey(hkey);
         }
+    }
+}
+
+/// 업데이트 시 기존 시작 프로그램 등록 여부를 유지하면서 경로만 새 설치 경로로 갱신
+fn refresh_startup_autorun_path(exe_path: &Path) {
+    let subkey = to_wide_null("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+    let mut hkey: isize = 0;
+    let mut exists = false;
+    unsafe {
+        if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_QUERY_VALUE, &mut hkey) == 0 {
+            for name in ["CoreFlow", "CoreFlowMonitor"] {
+                let n = to_wide_null(name);
+                let mut ty: u32 = 0;
+                let mut size: u32 = 0;
+                if RegQueryValueExW(hkey, n.as_ptr(), std::ptr::null_mut(), &mut ty, std::ptr::null_mut(), &mut size) == 0 {
+                    exists = true;
+                }
+            }
+            let _ = RegCloseKey(hkey);
+        }
+    }
+    if exists {
+        set_startup_autorun(true, exe_path);
     }
 }
 
@@ -628,7 +663,7 @@ fn perform_install(
     opt_desktop: bool,
     opt_start_menu: bool,
     opt_uninstaller: bool,
-    opt_startup: bool,
+    opt_startup: Option<bool>,
     opt_migrate: bool,
     opt_launch: bool,
 ) -> String {
@@ -737,10 +772,15 @@ fn perform_install(
         }
     }
 
-    // 9. Windows 시작 시 자동 실행 설정
-    set_startup_autorun(opt_startup, &exe_path);
-    if opt_startup {
-        steps.push("Windows 시작 시 자동 실행 등록 완료".to_string());
+    // 9. Windows 시작 시 자동 실행 설정 (None = 업데이트: 기존 등록 여부 유지 + 경로만 갱신)
+    match opt_startup {
+        Some(enable) => {
+            set_startup_autorun(enable, &exe_path);
+            if enable {
+                steps.push("Windows 시작 시 자동 실행 등록 완료".to_string());
+            }
+        }
+        None => refresh_startup_autorun_path(&exe_path),
     }
 
     // 9.5. 하드웨어 DXGI/D3D9 ETW 실시간 FPS 측정을 위한 Performance Log Users 그룹(S-1-5-32-559) 권한 부여
@@ -948,7 +988,8 @@ fn handle_client(
             desktop,
             startmenu,
             uninstaller,
-            startup,
+            // 체크 시 등록, 미체크 시 기존 등록 상태를 유지하고 경로만 새 설치본으로 갱신
+            if startup { Some(true) } else { None },
             migrate,
             launch,
         );
@@ -1093,7 +1134,7 @@ pub fn main() {
             true,  // 바탕화면 바로가기 갱신
             true,  // 시작 메뉴 바로가기 갱신
             true,  // 언인스톨러 버전 갱신
-            false, // 자동 실행 설정 유지
+            None,  // 자동 실행 설정 유지 (등록돼 있으면 새 경로로 갱신)
             true,  // 기존 사용자 데이터 유지
             true,  // 설치 후 즉시 CoreFlow 실행
         );

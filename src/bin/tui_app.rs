@@ -3699,12 +3699,9 @@ fn query_windows_user_name() -> String {
 
 #[cfg(target_os = "windows")]
 fn query_startup_enabled() -> bool {
-    reg_read_string(
-        HKEY_CURRENT_USER,
-        r"Software\Microsoft\Windows\CurrentVersion\Run",
-        "CoreFlow",
-    )
-    .is_some()
+    let run_key = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlow").is_some()
+        || reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlowMonitor").is_some()
 }
 
 #[cfg(target_os = "macos")]
@@ -3730,6 +3727,12 @@ fn set_startup_enabled(enable: bool) -> bool {
         HKEY_CURRENT_USER,
         r"Software\Microsoft\Windows\CurrentVersion\Run",
         "RustCordStudio",
+    );
+    // 설치 관리자가 등록한 항목(CoreFlowMonitor)은 앱 항목(CoreFlow)으로 통합하여 중복 실행/구버전 경로 방지
+    let _ = reg_delete_value(
+        HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        "CoreFlowMonitor",
     );
 
     if enable {
@@ -5319,8 +5322,166 @@ fn run_supervisor() {
     }
 }
 
+/// [레거시 업데이트 자가 복구]
+/// v1.0.5 이하 버전의 업데이터는 GitHub Release에서 `CoreFlow_Setup.exe` 대신 첫 번째 `.exe`
+/// (= 포터블 `CoreFlow.exe`)를 내려받아 `%TEMP%\CoreFlow_Setup_Update.exe --silent-update --dir <설치경로>`로 실행했습니다.
+/// 그 결과 새 버전이 임시 폴더에서만 실행되고 설치 폴더의 구버전은 그대로 남아,
+/// 윈도우 재부팅 시 시작 프로그램이 구버전으로 실행되는 문제가 있었습니다.
+/// 이 함수는 앱 본체가 `--silent-update`로 실행된 경우 자기 자신을 설치 경로에 복사한 뒤
+/// 설치된 실행 파일을 다시 띄우고 종료합니다. (true 반환 시 현재 프로세스 종료)
+#[cfg(target_os = "windows")]
+fn handle_legacy_silent_update(args: &[String]) -> bool {
+    if !args.iter().any(|a| a == "--silent-update") {
+        return false;
+    }
+    let already_elevated = args.iter().any(|a| a == "--heal-elevated");
+    let dir = args
+        .windows(2)
+        .find(|w| w[0] == "--dir")
+        .map(|w| w[1].trim().trim_matches('"').trim_end_matches('\\').to_string())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| r"C:\Program Files\CoreFlow".to_string());
+
+    let Ok(self_exe) = std::env::current_exe() else {
+        return false;
+    };
+    let target_dir = std::path::PathBuf::from(&dir);
+    let target_exe = target_dir.join("CoreFlow.exe");
+
+    let same_file = std::fs::canonicalize(&self_exe)
+        .ok()
+        .zip(std::fs::canonicalize(&target_exe).ok())
+        .map(|(a, b)| a == b)
+        .unwrap_or(false);
+    if same_file {
+        return false;
+    }
+
+    append_watchdog_log(&format!(
+        "레거시 업데이트 감지 → 설치 경로 자가 복구 시도: {} → {}",
+        self_exe.display(),
+        target_exe.display()
+    ));
+
+    // 이전 버전 프로세스가 완전히 종료되어 파일 잠금이 풀릴 때까지 대기
+    terminate_existing_coreflow_instances();
+    thread::sleep(Duration::from_millis(800));
+
+    let mut installed = false;
+    let mut denied = false;
+    let _ = std::fs::create_dir_all(&target_dir);
+    for _ in 0..6 {
+        match std::fs::copy(&self_exe, &target_exe) {
+            Ok(_) => {
+                installed = true;
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // 실행 중 잠금일 수 있으므로 기존 파일을 .old로 이름 변경 후 재시도
+                let old = target_dir.join("CoreFlow.old");
+                let _ = std::fs::remove_file(&old);
+                if std::fs::rename(&target_exe, &old).is_ok() {
+                    if std::fs::copy(&self_exe, &target_exe).is_ok() {
+                        installed = true;
+                        break;
+                    }
+                } else {
+                    denied = true;
+                }
+            }
+            Err(_) => {}
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    if !installed && denied && !already_elevated {
+        // Program Files 쓰기 권한이 없으면 UAC 권한 상승 후 다시 시도
+        let ps_cmd = format!(
+            "Start-Process -FilePath '{}' -Verb RunAs -ArgumentList @('--silent-update','--heal-elevated','--dir','\"{}\"')",
+            self_exe.display().to_string().replace('\'', "''"),
+            dir.replace('\'', "''")
+        );
+        let ok = Command::new("powershell.exe")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
+            .no_window()
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return true;
+        }
+    }
+
+    if !installed {
+        append_watchdog_log("설치 경로 자가 복구 실패 → 현재 위치에서 계속 실행");
+        return false;
+    }
+
+    // 시작 프로그램 등록이 있다면 설치 경로로 고정
+    if query_startup_enabled() {
+        let quoted = format!("\"{}\"", target_exe.display());
+        let _ = reg_write_string(
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            "CoreFlow",
+            &quoted,
+        );
+        let _ = reg_delete_value(
+            HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            "CoreFlowMonitor",
+        );
+    }
+
+    append_watchdog_log("설치 경로 자가 복구 완료 → 설치된 최신 버전으로 재실행");
+    let _ = Command::new(&target_exe).current_dir(&target_dir).spawn();
+    true
+}
+
+#[cfg(not(target_os = "windows"))]
+fn handle_legacy_silent_update(_args: &[String]) -> bool {
+    false
+}
+
+/// 시작 프로그램 레지스트리가 현재 실행 중인 설치본을 가리키도록 동기화
+/// (설치 관리자가 등록한 `CoreFlowMonitor` 항목과 앱이 등록한 `CoreFlow` 항목을 하나로 통합)
+#[cfg(target_os = "windows")]
+fn sync_startup_registry_path() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // 임시 폴더에서 실행 중인 경우 시작 프로그램 경로를 덮어쓰지 않음
+    let tmp = std::env::temp_dir();
+    let exe_l = exe.to_string_lossy().to_ascii_lowercase();
+    if exe_l.starts_with(&tmp.to_string_lossy().to_ascii_lowercase()) || exe_l.contains(r"\temp\") {
+        return;
+    }
+    let run_key = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    let cur = reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlow");
+    let legacy = reg_read_string(HKEY_CURRENT_USER, run_key, "CoreFlowMonitor");
+    if cur.is_none() && legacy.is_none() {
+        return;
+    }
+    let quoted = format!("\"{}\"", exe.display());
+    if cur.as_deref().map(|s| !s.eq_ignore_ascii_case(&quoted)).unwrap_or(true) {
+        let _ = reg_write_string(HKEY_CURRENT_USER, run_key, "CoreFlow", &quoted);
+    }
+    if legacy.is_some() {
+        let _ = reg_delete_value(HKEY_CURRENT_USER, run_key, "CoreFlowMonitor");
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sync_startup_registry_path() {}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if handle_legacy_silent_update(&args) {
+        return;
+    }
+    if !args.iter().any(|a| a == "--worker") {
+        sync_startup_registry_path();
+    }
     if args.iter().any(|a| a == "--worker") {
         let restarted = args.iter().any(|a| a == "--restarted");
         run_worker(restarted);
