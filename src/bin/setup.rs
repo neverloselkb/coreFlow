@@ -190,6 +190,15 @@ extern "system" {
 #[link(name = "User32")]
 extern "system" {
     fn FindWindowW(lp_class_name: *const u16, lp_window_name: *const u16) -> isize;
+    fn FindWindowExW(
+        h_wnd_parent: isize,
+        h_wnd_child_after: isize,
+        lpsz_class: *const u16,
+        lpsz_window: *const u16,
+    ) -> isize;
+    fn IsWindowVisible(h_wnd: isize) -> i32;
+    fn GetWindowTextLengthW(h_wnd: isize) -> i32;
+    fn GetWindowTextW(h_wnd: isize, lp_string: *mut u16, n_max_count: i32) -> i32;
     fn PostMessageW(h_wnd: isize, msg: u32, w_param: usize, l_param: isize) -> i32;
     fn GetForegroundWindow() -> isize;
     fn SetForegroundWindow(h_wnd: isize) -> i32;
@@ -816,9 +825,26 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
     let mut steps = Vec::new();
     let install_dir = PathBuf::from(install_dir_str.trim());
 
+    // 작업 디렉토리가 설치 폴더에 걸려 있지 않도록 %TEMP%로 전환
+    let _ = env::set_current_dir(env::temp_dir());
+
     let killed = stop_running_coreflow();
     if killed > 0 {
         steps.push(format!("실행 중인 CoreFlow 프로세스 {}개 종료 완료", killed));
+    }
+
+    // 혹시 이전에 실행되어 남아 있는 다른 Uninstall_CoreFlow.exe 프로세스가 있다면 정리
+    let my_pid = std::process::id();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    for (pid, proc_info) in sys.processes() {
+        if pid.as_u32() == my_pid {
+            continue;
+        }
+        let n = proc_info.name().to_string_lossy().to_ascii_lowercase();
+        if n == "uninstall_coreflow.exe" || n == "uninstall_coreflow" {
+            let _ = proc_info.kill();
+        }
     }
 
     // 바로가기 삭제
@@ -836,7 +862,7 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
     unregister_uninstaller();
     steps.push("Windows 시작프로그램 및 설치 정보 레지스트리 제거 완료".to_string());
 
-    // 파일 삭제 (잠금 해제 대기 포함 최대 6회 재시도)
+    // 파일 삭제 (실행 중 잠금 시 %TEMP%로 즉시 대피 이동하여 설치 폴더를 완전히 비움)
     for bin_name in [
         "CoreFlow.exe",
         "CoreFlow.old",
@@ -845,11 +871,23 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         "coreflow.ico",
     ] {
         let p = install_dir.join(bin_name);
+        let mut removed = false;
         for _ in 0..6 {
             if !p.exists() || fs::remove_file(&p).is_ok() {
+                removed = true;
                 break;
             }
-            thread::sleep(Duration::from_millis(150));
+            thread::sleep(Duration::from_millis(120));
+        }
+        if !removed && p.exists() {
+            // 현재 프로세스 자신이어서 직접 삭제가 막힌 경우 %TEMP%로 이동시켜 설치 폴더에서 즉시 제거
+            let evacuated = env::temp_dir().join(format!(
+                "CoreFlow_Evacuated_{}_{}.tmp",
+                bin_name,
+                std::process::id()
+            ));
+            let _ = fs::remove_file(&evacuated);
+            let _ = fs::rename(&p, &evacuated);
         }
     }
     let _ = fs::remove_dir_all(install_dir.join("assets"));
@@ -869,15 +907,31 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         ] {
             let _ = fs::remove_file(install_dir.join(f));
         }
-        // 설치 폴더(C:\Program Files\CoreFlow) 자체까지 완전히 삭제 (최대 6회 재시도)
-        for _ in 0..6 {
+        // 폴더 내 잔여 파일이 있다면 모두 정리 후 설치 폴더(C:\Program Files\CoreFlow) 자체까지 완전히 삭제
+        if let Ok(entries) = fs::read_dir(&install_dir) {
+            for entry in entries.flatten() {
+                let ep = entry.path();
+                if ep.is_dir() {
+                    let _ = fs::remove_dir_all(&ep);
+                } else if fs::remove_file(&ep).is_err() {
+                    let ev = env::temp_dir().join(format!(
+                        "CoreFlow_Evac_{}_{}.tmp",
+                        entry.file_name().to_string_lossy(),
+                        std::process::id()
+                    ));
+                    let _ = fs::remove_file(&ev);
+                    let _ = fs::rename(&ep, &ev);
+                }
+            }
+        }
+        for _ in 0..8 {
             if !install_dir.exists()
-                || fs::remove_dir_all(&install_dir).is_ok()
                 || fs::remove_dir(&install_dir).is_ok()
+                || fs::remove_dir_all(&install_dir).is_ok()
             {
                 break;
             }
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(150));
         }
         steps.push(format!(
             "사용자 데이터 및 설치 폴더({}) 전체 삭제 완료",
@@ -938,18 +992,50 @@ fn launch_setup_window(url: &str) {
     }
 }
 
+fn find_setup_window() -> isize {
+    let title_w = to_wide_null("CoreFlow Setup — 설치 및 관리 마법사");
+    unsafe {
+        let exact = FindWindowW(std::ptr::null(), title_w.as_ptr());
+        if exact != 0 {
+            return exact;
+        }
+        let mut child: isize = 0;
+        loop {
+            child = FindWindowExW(0, child, std::ptr::null(), std::ptr::null());
+            if child == 0 {
+                break;
+            }
+            if IsWindowVisible(child) == 0 {
+                continue;
+            }
+            let len = GetWindowTextLengthW(child);
+            if len <= 0 {
+                continue;
+            }
+            let mut buf = vec![0u16; (len as usize) + 1];
+            let read_len = GetWindowTextW(child, buf.as_mut_ptr(), buf.len() as i32);
+            if read_len > 0 {
+                let text = String::from_utf16_lossy(&buf[..read_len as usize]);
+                if text.starts_with("CoreFlow Setup") {
+                    return child;
+                }
+            }
+        }
+    }
+    0
+}
+
 fn spawn_window_icon_applier() {
     thread::spawn(|| {
         let ico_path = env::temp_dir().join("coreflow_setup_icon.ico");
         let _ = fs::write(&ico_path, EMBEDDED_ICON_ICO);
         let ico_w = to_wide_null(&ico_path.to_string_lossy());
-        let title_w = to_wide_null("CoreFlow Setup — 설치 및 관리 마법사");
 
         unsafe {
             let h_icon_big = LoadImageW(0, ico_w.as_ptr(), 1, 256, 256, 0x0010);
             let h_icon_small = LoadImageW(0, ico_w.as_ptr(), 1, 32, 32, 0x0010);
             for _ in 0..40 {
-                let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
+                let hwnd = find_setup_window();
                 if hwnd != 0 {
                     if h_icon_big != 0 {
                         SendMessageW(hwnd, 0x0080, 1, h_icon_big);
@@ -966,9 +1052,8 @@ fn spawn_window_icon_applier() {
 }
 
 fn close_setup_window() {
-    let title_w = to_wide_null("CoreFlow Setup — 설치 및 관리 마법사");
     unsafe {
-        let hwnd = FindWindowW(std::ptr::null(), title_w.as_ptr());
+        let hwnd = find_setup_window();
         if hwnd != 0 {
             let _ = PostMessageW(hwnd, 0x0010, 0, 0); // WM_CLOSE
         }
