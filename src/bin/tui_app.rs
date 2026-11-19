@@ -6490,6 +6490,94 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     flex-shrink: 0;
   }
 
+  /* 상단 우측 도구·메뉴 토글 박스 (드롭다운 팝오버) */
+  .top-tools-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .top-tools-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px !important;
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    border: 1px solid var(--border-subtle) !important;
+    background-color: var(--bg-card) !important;
+    color: var(--text-normal) !important;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+
+  .top-tools-toggle:hover,
+  .top-tools-toggle.open {
+    border-color: var(--brand) !important;
+    background-color: rgba(var(--brand-rgb), 0.14) !important;
+  }
+
+  .top-tools-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 350;
+    width: min(348px, calc(100vw - 24px));
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: fadeIn 0.14s ease;
+  }
+
+  .top-tools-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--text-muted);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .top-tools-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .top-tools-grid .btn,
+  .top-tools-grid .rec-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 7px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .top-tools-theme-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .top-tools-theme-row .select-input {
+    flex: 1;
+    min-width: 0;
+  }
+
   .badge {
     font-size: 10.5px;
     padding: 3px 8px;
@@ -7916,10 +8004,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: none !important;
   }
 
-  /* 창 크기에 따른 반응형 레이아웃 자동 조절 */
+  /* 창 크기에 따른 모든 메뉴 및 패널 반응형 자동 조절 */
+  .detail-panel,
+  .modal-card {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
   @media (max-width: 1180px) {
     .channel-sidebar {
-      width: 200px;
+      width: 196px;
     }
     .content-scroll {
       padding: 12px 14px;
@@ -7933,13 +8027,65 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
-  @media (max-width: 920px) {
+  @media (max-width: 980px) {
+    .server-rail {
+      width: 58px;
+    }
+    .channel-sidebar {
+      width: 176px;
+    }
+    .top-bar {
+      padding: 0 12px;
+    }
+    .top-bar-desc {
+      display: none;
+    }
     .grid-4 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .grid-main {
       grid-template-columns: minmax(0, 1fr) !important;
       grid-template-rows: auto;
+    }
+    .custom-toggle-grid,
+    .alert-rules-grid {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .channel-sidebar {
+      display: none;
+    }
+    .server-rail {
+      width: 54px;
+      padding: 8px 0;
+    }
+    .top-bar-title {
+      font-size: 14.5px;
+    }
+    .content-scroll {
+      padding: 10px;
+      gap: 10px;
+    }
+    .hud-anchor-grid {
+      gap: 4px;
+    }
+    .hud-anchor-btn {
+      padding: 6px 4px;
+      font-size: 10.5px;
+    }
+  }
+
+  @media (max-width: 540px) {
+    .server-rail {
+      width: 46px;
+    }
+    .grid-4 {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .top-tools-grid {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>
@@ -8172,39 +8318,52 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <span class="top-bar-desc" id="top-desc">CPU • GPU • 게임 FPS 실시간 모니터</span>
       </div>
       <div class="top-bar-right">
-        <button id="btn-record" class="rec-btn" onclick="toggleRecording()" title="클릭 시 실시간 모니터링 녹화를 시작하며, 정지 시 CSV 파일 자동 저장 및 정밀 분석 리포트를 표시합니다">
-          <span class="rec-dot"></span>
-          <span id="btn-record-text">녹화 시작</span>
-        </button>
-        <button id="btn-analysis" class="btn secondary" onclick="openRecordAnalysis()" title="녹화된 모니터링 데이터 정밀 분석 리포트 열기">
-          📊 분석 리포트
-        </button>
-        <button id="btn-alerts" class="btn secondary" onclick="openAlertSettings()" title="GPU 과열, CPU/RAM 과부하 및 장시간 게임 플레이 스마트 경고 알림 설정">
-          🔔 <span id="btn-alerts-text">스마트 알림</span>
-        </button>
-        <button id="btn-view-mode" class="btn secondary" onclick="toggleDashboardViewMode()" title="그래프 차트 중심 화면과 상세 수치 그리드 화면을 전환합니다">
-          <span id="btn-view-mode-icon">📊</span> <span id="btn-view-mode-text">차트형</span>
-        </button>
-        <button id="btn-uisettings" class="btn secondary" onclick="openUiSettingsModal()" title="원하는 하드웨어 모니터링 항목만 골라 보거나 미니 HUD(박스형/가로바) 스타일을 설정합니다">
-          🎛️ 화면·HUD 설정
-        </button>
-        <button id="btn-minihud" class="btn secondary" onclick="enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
-          🗗 미니 HUD
-        </button>
-        <button id="btn-help-guide" class="btn secondary" onclick="openHelpModal()" title="각 메뉴별 수치 해석 방법, 주의해야 할 이상 징후 및 해결 팁 가이드를 엽니다 (단축키 F1)">
-          ❓ 도움말
-        </button>
-        <button id="btn-update-check" class="btn secondary" onclick="openUpdateModal(true)" title="GitHub 저장소(neverloselkb/coreFlow)에서 최신 버전 업데이트를 확인하고 자동 설치합니다">
-          🔄 <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
-        </button>
-        <select id="theme-mode-select" class="select-input" onchange="onChangeThemeOverride()" title="테마 모드 선택">
-          <option value="auto">🖥️ 테마 자동</option>
-          <option value="light">☀️ 라이트</option>
-          <option value="dark">🌙 다크</option>
-        </select>
-        <div class="badge" id="theme-badge" title="현재 Windows 강조 색(Accent Color)">
-          <span class="accent-dot" id="accent-dot"></span>
-          <span id="theme-status-text">테마 연동</span>
+        <div class="top-tools-wrap" id="top-tools-wrap">
+          <button id="btn-top-tools-toggle" class="btn secondary top-tools-toggle" onclick="toggleTopToolsMenu(event)" title="녹화, 분석 리포트, 스마트 알림, 화면·HUD 설정, 미니 HUD, 도움말, 업데이트 및 테마 메뉴를 열고 닫습니다">
+            <span>🧰 도구 · 메뉴</span>
+            <span id="top-tools-arrow" style="font-size: 10px; opacity: 0.8;">▾</span>
+          </button>
+          <div id="top-tools-popover" class="top-tools-popover hidden" onclick="event.stopPropagation()">
+            <div class="top-tools-header">
+              <span>🧰 빠른 도구 및 메뉴</span>
+              <span style="font-size: 10.5px; font-weight: 600;">창 크기 자동 맞춤</span>
+            </div>
+            <div class="top-tools-grid">
+              <button id="btn-record" class="rec-btn" onclick="toggleRecording()" title="클릭 시 실시간 모니터링 녹화를 시작하며, 정지 시 CSV 파일 자동 저장 및 정밀 분석 리포트를 표시합니다">
+                <span class="rec-dot"></span>
+                <span id="btn-record-text">녹화 시작</span>
+              </button>
+              <button id="btn-analysis" class="btn secondary" onclick="closeTopToolsMenu(); openRecordAnalysis()" title="녹화된 모니터링 데이터 정밀 분석 리포트 열기">
+                📊 분석 리포트
+              </button>
+              <button id="btn-alerts" class="btn secondary" onclick="closeTopToolsMenu(); openAlertSettings()" title="GPU 과열, CPU/RAM 과부하 및 장시간 게임 플레이 스마트 경고 알림 설정">
+                🔔 <span id="btn-alerts-text">스마트 알림</span>
+              </button>
+              <button id="btn-view-mode" class="btn secondary" onclick="toggleDashboardViewMode()" title="그래프 차트 중심 화면과 상세 수치 그리드 화면을 전환합니다">
+                <span id="btn-view-mode-icon">📊</span> <span id="btn-view-mode-text">차트형</span>
+              </button>
+              <button id="btn-uisettings" class="btn secondary" onclick="closeTopToolsMenu(); openUiSettingsModal()" title="원하는 하드웨어 모니터링 항목만 골라 보거나 미니 HUD(박스형/가로바/8방향 위치)를 설정합니다">
+                🎛️ 화면·HUD 설정
+              </button>
+              <button id="btn-minihud" class="btn secondary" onclick="closeTopToolsMenu(); enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
+                🗗 미니 HUD
+              </button>
+              <button id="btn-help-guide" class="btn secondary" onclick="closeTopToolsMenu(); openHelpModal()" title="각 메뉴별 수치 해석 방법, 주의해야 할 이상 징후 및 해결 팁 가이드를 엽니다 (단축키 F1)">
+                ❓ 도움말
+              </button>
+              <button id="btn-update-check" class="btn secondary" onclick="closeTopToolsMenu(); openUpdateModal(true)" title="GitHub 저장소(neverloselkb/coreFlow)에서 최신 버전 업데이트를 확인하고 자동 설치합니다">
+                🔄 <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
+              </button>
+            </div>
+            <div class="top-tools-theme-row">
+              <span style="font-size: 12px; font-weight: 700; color: var(--text-normal); white-space: nowrap;">🎨 테마 모드</span>
+              <select id="theme-mode-select" class="select-input" onchange="onChangeThemeOverride()" title="테마 모드 선택">
+                <option value="auto">🖥️ 테마 자동</option>
+                <option value="light">☀️ 라이트</option>
+                <option value="dark">🌙 다크</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -10262,9 +10421,46 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     document.documentElement.style.setProperty('--brand-rgb', accentRgb);
 
     const modeName = isLight ? '라이트' : '다크';
-    document.getElementById('theme-status-text').textContent = `${modeName} • ${accent.toUpperCase()}`;
+    const themeStatusEl = document.getElementById('theme-status-text');
+    if (themeStatusEl) {
+      themeStatusEl.textContent = `${modeName} • ${accent.toUpperCase()}`;
+    }
     return { accent, accentRgb };
   }
+
+  function toggleTopToolsMenu(ev) {
+    if (ev) ev.stopPropagation();
+    const pop = document.getElementById('top-tools-popover');
+    const btn = document.getElementById('btn-top-tools-toggle');
+    const arrow = document.getElementById('top-tools-arrow');
+    if (!pop) return;
+    const willOpen = pop.classList.contains('hidden');
+    pop.classList.toggle('hidden', !willOpen);
+    if (btn) btn.classList.toggle('open', willOpen);
+    if (arrow) arrow.textContent = willOpen ? '▴' : '▾';
+  }
+
+  function closeTopToolsMenu() {
+    const pop = document.getElementById('top-tools-popover');
+    const btn = document.getElementById('btn-top-tools-toggle');
+    const arrow = document.getElementById('top-tools-arrow');
+    if (pop) pop.classList.add('hidden');
+    if (btn) btn.classList.remove('open');
+    if (arrow) arrow.textContent = '▾';
+  }
+
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('top-tools-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      closeTopToolsMenu();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeTopToolsMenu();
+    }
+  });
 
   function onChangeThemeOverride() {
     themeOverride = document.getElementById('theme-mode-select').value;
