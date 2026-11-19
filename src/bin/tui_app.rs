@@ -1826,7 +1826,24 @@ fn is_public_ipv4(ip: std::net::Ipv4Addr) -> bool {
 fn is_web_or_telemetry_port(port: u16) -> bool {
     matches!(
         port,
-        80 | 443 | 8080 | 8443 | 8000 | 8888 | 3000 | 53 | 9993 | 9998
+        80 | 443
+            | 8080
+            | 8443
+            | 8000
+            | 8888
+            | 3000
+            | 53
+            | 9993
+            | 9998
+            // IRC / IRC-TLS 글로벌 채팅 서버 (Warframe, Soulframe 등)
+            | 6665..=6669
+            | 6695..=6697
+            // XMPP 게임 채팅 서버 (LoL 등) 및 STUN/TURN 음성/릴레이 보조 포트
+            | 5222
+            | 5223
+            | 3478
+            | 3479
+            | 19302
     )
 }
 
@@ -2013,16 +2030,22 @@ fn spawn_ping_monitor(
 
             let mut measured: Option<(f64, String, bool, String, u16)> = None;
 
-            // 1. 활성 게임이 실행 중인 경우 해당 게임의 접속 서버 IP 탐색 및 핑 측정
+            // 1. 활성 게임이 실행 중인 경우 해당 게임의 접속 서버 IP 탐색 및 범용 계층 핑 측정
             if target_pid > 0 {
                 let endpoints = get_process_tcp_endpoints(target_pid);
-                // 웹/CDN(80/443 등)과 실제 게임 전용 포트 구분: 게임 전용 포트가 존재하면 해당 포트들만 우선 검사
-                let has_game_port = endpoints.iter().any(|c| c.is_game_port);
-                let candidates: Vec<_> = endpoints
-                    .iter()
-                    .filter(|c| !has_game_port || c.is_game_port)
-                    .take(8)
-                    .collect();
+                // 중복 원격 IP를 제거하되, 동일 IP에 게임 전용 포트가 있으면 우선 유지하고
+                // 모든 고유 원격 서버(게임 포트 + 지역 API 서버)를 함께 계층 점수로 평가하여
+                // 해외 채팅/텔레메트리 서버가 지역 서버를 가리는 현상을 게임 종류와 무관하게 원천 차단
+                let mut seen_ips = std::collections::HashSet::new();
+                let mut candidates = Vec::new();
+                for conn in &endpoints {
+                    if seen_ips.insert(conn.remote_ip) {
+                        candidates.push(conn);
+                        if candidates.len() >= 8 {
+                            break;
+                        }
+                    }
+                }
 
                 let mut best_score = -100000.0f64;
                 let mut best_conn: Option<(f64, String, bool, String, u16)> = None;
@@ -2030,10 +2053,10 @@ fn spawn_ping_monitor(
                 for conn in candidates {
                     if let Some(rtt) = ping_remote_server(conn.remote_ip, conn.remote_port) {
                         // 모든 온라인 게임 공통 다중 서버 계층 판별 알고리즘:
-                        // - 1티어 (초근접 국내/지역 인게임 매치 세션, RTT < 65ms): 가중치 +2500
-                        // - 2티어 (아시아-태평양 근거리 매치 서버, 65ms <= RTT < 115ms): 가중치 +1200
-                        // - 3티어 (글로벌 로비/인증/해외 서버, RTT >= 115ms): 기본 점수 +100
-                        // - 추가 가중치: 게임 전용 포트인 경우 +400
+                        // - 1티어 (초근접 국내/지역 서버, RTT < 65ms): 가중치 +2500
+                        // - 2티어 (아시아-태평양 근거리 서버, 65ms <= RTT < 115ms): 가중치 +1200
+                        // - 3티어 (해외 채팅/로비/인증 서버, RTT >= 115ms): 기본 점수 +100
+                        // - 추가 가중치: 동일 티어 내에서는 게임 전용 포트(+400)가 웹/CDN보다 항상 우선
                         // - 차등 점수: RTT가 낮을수록 높은 점수 (-rtt)
                         let tier_score = if rtt < 65.0 {
                             2500.0
@@ -2047,8 +2070,15 @@ fn spawn_ping_monitor(
 
                         if total_score > best_score {
                             best_score = total_score;
-                            let is_ingame = rtt < 115.0;
-                            let stage = if is_ingame { "인게임 세션" } else { "로비/대기" };
+                            let stage = if rtt < 115.0 {
+                                if conn.is_game_port {
+                                    "인게임 세션"
+                                } else {
+                                    "게임 서버"
+                                }
+                            } else {
+                                "해외/로비"
+                            };
                             let label = format!("🎮 {} ({}: {}:{})", game_title, stage, conn.remote_ip, conn.remote_port);
                             best_conn = Some((rtt, label, true, conn.remote_ip.to_string(), conn.remote_port));
                         }
