@@ -7753,6 +7753,45 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     overflow: hidden !important;
   }
 
+  /* 미니 HUD 표시 위치 8방향 3x3 선택 그리드 */
+  .hud-anchor-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 6px;
+    padding: 8px;
+    border-radius: 9px;
+    background-color: var(--bg-tertiary);
+    border: 1px dashed var(--border-subtle);
+  }
+
+  .hud-anchor-btn {
+    padding: 8px 6px;
+    border-radius: 7px;
+    border: 1px solid var(--border-subtle);
+    background-color: var(--bg-card);
+    color: var(--text-normal);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.14s ease;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .hud-anchor-btn:hover {
+    border-color: var(--brand);
+    background-color: rgba(var(--brand-rgb), 0.12);
+    transform: translateY(-1px);
+  }
+
+  .hud-anchor-btn.active {
+    background-color: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(var(--brand-rgb), 0.35);
+  }
+
   /* 화면·미니 HUD 맞춤 설정 스타일 */
   .custom-toggle-grid {
     display: grid;
@@ -9263,6 +9302,28 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <input type="checkbox" id="ui-hud-hover-opaque" onchange="toggleMiniHudHoverOpaque(this.checked)" checked style="cursor:pointer;" />
               <span>마우스 커서를 올렸을 때(Hover) 일시적으로 또렷하게(100%) 표시하여 버튼 클릭을 편리하게 합니다</span>
             </label>
+          </div>
+
+          <!-- 미니 HUD 시작 위치 선택 (8방향 프리셋 + 마지막 위치 기억) -->
+          <div class="card" style="padding: 12px 14px; gap: 6px; background: rgba(var(--brand-rgb), 0.05); border: 1px solid rgba(var(--brand-rgb), 0.2);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap: 8px;">
+              <div>
+                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🧭 미니 HUD 표시 위치 (8방향 프리셋)</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">미니 HUD 버튼을 눌렀을 때 창이 자동으로 배치될 화면 위치를 선택합니다</div>
+              </div>
+              <strong id="ui-hud-anchor-label" style="font-size: 12px; color: var(--brand); white-space: nowrap;">📌 마지막 위치 기억</strong>
+            </div>
+            <div class="hud-anchor-grid">
+              <button type="button" class="hud-anchor-btn" data-anchor="tl" onclick="setMiniHudAnchorPref('tl')">↖ 좌상단</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="tc" onclick="setMiniHudAnchorPref('tc')">↑ 상단 중앙</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="tr" onclick="setMiniHudAnchorPref('tr')">↗ 우상단</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="ml" onclick="setMiniHudAnchorPref('ml')">← 좌측 중앙</button>
+              <button type="button" class="hud-anchor-btn active" data-anchor="last" onclick="setMiniHudAnchorPref('last')">📌 마지막 위치</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="mr" onclick="setMiniHudAnchorPref('mr')">→ 우측 중앙</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="bl" onclick="setMiniHudAnchorPref('bl')">↙ 좌하단</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="bc" onclick="setMiniHudAnchorPref('bc')">↓ 하단 중앙</button>
+              <button type="button" class="hud-anchor-btn" data-anchor="br" onclick="setMiniHudAnchorPref('br')">↘ 우하단</button>
+            </div>
           </div>
 
           <!-- 미니 HUD에 표시할 타일 개별 선택 -->
@@ -11189,13 +11250,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     renderMiniHud();
 
     const target = getMiniHudTargetSize();
-    resizeNativeAppWindow(target.w, target.h);
+    const curAnchor = (typeof uiPrefs !== 'undefined' && uiPrefs && uiPrefs.hudAnchor) ? uiPrefs.hudAnchor : 'last';
+    const anchorPos = computeMiniHudAnchorCoords(curAnchor, target.w, target.h);
+    if (anchorPos) {
+      resizeNativeAppWindow(target.w, target.h, anchorPos.x, anchorPos.y);
+    } else {
+      resizeNativeAppWindow(target.w, target.h);
+    }
     const curOpacity = (typeof uiPrefs !== 'undefined' && uiPrefs && typeof uiPrefs.hudOpacity === 'number')
       ? uiPrefs.hudOpacity
       : 100;
     applyMiniHudOpacity(curOpacity);
     try {
-      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}&opacity=${curOpacity}`, { method: 'POST' });
+      const posQuery = anchorPos ? `&x=${anchorPos.x}&y=${anchorPos.y}` : '';
+      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}${posQuery}&w=${target.w}&h=${target.h}&opacity=${curOpacity}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -11280,11 +11348,18 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     applyUiPrefs(false);
 
     const target = getMiniHudTargetSize();
+    const curAnchor = (typeof uiPrefs !== 'undefined' && uiPrefs && uiPrefs.hudAnchor) ? uiPrefs.hudAnchor : 'last';
+    const anchorPos = computeMiniHudAnchorCoords(curAnchor, target.w, target.h);
     if (isMiniHudMode) {
-      resizeNativeAppWindow(target.w, target.h);
+      if (anchorPos) {
+        resizeNativeAppWindow(target.w, target.h, anchorPos.x, anchorPos.y);
+      } else {
+        resizeNativeAppWindow(target.w, target.h);
+      }
     }
     try {
-      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${target.w}&h=${target.h}`, { method: 'POST' });
+      const posQuery = (isMiniHudMode && anchorPos) ? `&x=${anchorPos.x}&y=${anchorPos.y}` : '';
+      await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}${posQuery}&w=${target.w}&h=${target.h}`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
@@ -13647,6 +13722,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     hudTopmost: true,
     hudOpacity: 100,
     hudHoverOpaque: true,
+    hudAnchor: 'last',
     hudFps: true,
     hudCpu: true,
     hudGpu: true,
@@ -13677,7 +13753,83 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (typeof res.hudHoverOpaque !== 'boolean') {
       res.hudHoverOpaque = true;
     }
+    const validAnchors = ['last', 'tl', 'tc', 'tr', 'ml', 'mr', 'bl', 'bc', 'br'];
+    if (typeof res.hudAnchor !== 'string' || !validAnchors.includes(res.hudAnchor)) {
+      res.hudAnchor = 'last';
+    }
     return res;
+  }
+
+  const HUD_ANCHOR_LABELS = {
+    last: '📌 마지막 위치 기억',
+    tl: '↖ 좌상단',
+    tc: '↑ 상단 중앙',
+    tr: '↗ 우상단',
+    ml: '← 좌측 중앙',
+    mr: '→ 우측 중앙',
+    bl: '↙ 좌하단',
+    bc: '↓ 하단 중앙',
+    br: '↘ 우하단'
+  };
+
+  function computeMiniHudAnchorCoords(anchor, w, h) {
+    if (!anchor || anchor === 'last') return null;
+    const availL = (typeof window.screen.availLeft === 'number') ? window.screen.availLeft : 0;
+    const availT = (typeof window.screen.availTop === 'number') ? window.screen.availTop : 0;
+    const availW = Math.max(800, window.screen.availWidth || window.screen.width || 1920);
+    const availH = Math.max(600, window.screen.availHeight || window.screen.height || 1080);
+    const margin = 12;
+
+    let x = availL + margin;
+    let y = availT + margin;
+
+    if (anchor === 'tc' || anchor === 'bc') {
+      x = availL + Math.round((availW - w) / 2);
+    } else if (anchor === 'tr' || anchor === 'mr' || anchor === 'br') {
+      x = availL + availW - w - margin;
+    }
+
+    if (anchor === 'ml' || anchor === 'mr') {
+      y = availT + Math.round((availH - h) / 2);
+    } else if (anchor === 'bl' || anchor === 'bc' || anchor === 'br') {
+      y = availT + availH - h - margin;
+    }
+
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  function updateMiniHudAnchorUI() {
+    const curAnchor = (typeof uiPrefs !== 'undefined' && uiPrefs && uiPrefs.hudAnchor) ? uiPrefs.hudAnchor : 'last';
+    const labelEl = document.getElementById('ui-hud-anchor-label');
+    if (labelEl) {
+      labelEl.textContent = HUD_ANCHOR_LABELS[curAnchor] || HUD_ANCHOR_LABELS.last;
+    }
+    document.querySelectorAll('.hud-anchor-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-anchor') === curAnchor);
+    });
+  }
+
+  async function setMiniHudAnchorPref(anchor) {
+    if (!uiPrefs) return;
+    const validAnchors = ['last', 'tl', 'tc', 'tr', 'ml', 'mr', 'bl', 'bc', 'br'];
+    const safeAnchor = validAnchors.includes(anchor) ? anchor : 'last';
+    uiPrefs.hudAnchor = safeAnchor;
+    saveUiPrefs();
+    updateMiniHudAnchorUI();
+    showToast(`🧭 미니 HUD 표시 위치가 [${HUD_ANCHOR_LABELS[safeAnchor]}]로 설정되었습니다.`);
+
+    if (isMiniHudMode && safeAnchor !== 'last') {
+      const target = getMiniHudTargetSize();
+      const pos = computeMiniHudAnchorCoords(safeAnchor, target.w, target.h);
+      if (pos) {
+        const curOp = (typeof uiPrefs.hudOpacity === 'number') ? uiPrefs.hudOpacity : 100;
+        resizeNativeAppWindow(target.w, target.h, pos.x, pos.y);
+        try {
+          await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&x=${pos.x}&y=${pos.y}&w=${target.w}&h=${target.h}&opacity=${curOp}`, { method: 'POST' });
+        } catch (e) {}
+        syncMiniHudState(true);
+      }
+    }
   }
 
   const INITIAL_UI_PREFS_DATA = /*__COREFLOW_INITIAL_UI_PREFS__*/null;
@@ -13872,15 +14024,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (opLabel) opLabel.textContent = `${curOp}%`;
     const opHoverChk = document.getElementById('ui-hud-hover-opaque');
     if (opHoverChk) opHoverChk.checked = uiPrefs.hudHoverOpaque !== false;
+    updateMiniHudAnchorUI();
 
     if (isMiniHudMode) {
       applyMiniHudOpacity(curOp);
     }
 
     if (resizeMiniIfActive && isMiniHudMode) {
-      resizeNativeAppWindow(targetSize.w, targetSize.h);
+      const curAnchor = uiPrefs.hudAnchor || 'last';
+      const anchorPos = computeMiniHudAnchorCoords(curAnchor, targetSize.w, targetSize.h);
+      if (anchorPos) {
+        resizeNativeAppWindow(targetSize.w, targetSize.h, anchorPos.x, anchorPos.y);
+      } else {
+        resizeNativeAppWindow(targetSize.w, targetSize.h);
+      }
       try {
-        await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}&w=${targetSize.w}&h=${targetSize.h}&opacity=${curOp}`, { method: 'POST' });
+        const posQuery = anchorPos ? `&x=${anchorPos.x}&y=${anchorPos.y}` : '';
+        await apiFetch(`/api/window_ctl?topmost=${miniHudTopmost ? '1' : '0'}${posQuery}&w=${targetSize.w}&h=${targetSize.h}&opacity=${curOp}`, { method: 'POST' });
       } catch (e) {}
       syncMiniHudState(true);
     }
