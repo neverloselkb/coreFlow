@@ -144,6 +144,18 @@ extern "system" {
     ) -> isize;
     fn SHBrowseForFolderW(lpbi: *mut BrowseInfoW) -> *mut std::ffi::c_void;
     fn SHGetPathFromIDListW(pidl: *const std::ffi::c_void, psz_path: *mut u16) -> i32;
+    fn SHGetKnownFolderPath(
+        rfid: *const Guid,
+        dw_flags: u32,
+        h_token: isize,
+        ppsz_path: *mut *mut u16,
+    ) -> i32;
+    fn SHChangeNotify(
+        w_event_id: i32,
+        u_flags: u32,
+        dw_item1: *const std::ffi::c_void,
+        dw_item2: *const std::ffi::c_void,
+    );
 }
 
 #[link(name = "Advapi32")]
@@ -268,6 +280,9 @@ fn create_windows_shortcut(
 
         let mut saved_ok = false;
         if hr_qi >= 0 && !p_pf.is_null() {
+            if let Some(parent) = lnk_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
             let pf_vtbl = &*(*p_pf).lp_vtbl;
             let hr_save = (pf_vtbl.save)(p_pf, lnk_w.as_ptr(), 1);
             saved_ok = hr_save >= 0;
@@ -276,6 +291,10 @@ fn create_windows_shortcut(
 
         let _ = (vtbl.release)(p_sl);
         CoUninitialize();
+        if saved_ok {
+            // Windows 바탕화면/탐색기 아이콘 캐시 즉시 갱신 (SHCNE_ASSOCCHANGED)
+            SHChangeNotify(0x0800_0000, 0x0000, std::ptr::null(), std::ptr::null());
+        }
         saved_ok
     }
 }
@@ -496,20 +515,67 @@ fn browse_for_install_folder(current_dir_str: &str) -> Option<String> {
     }
 }
 
+/// Windows 공식 Shell API(`SHGetKnownFolderPath`)로 OneDrive 리디렉션·한글 경로·사용자 지정 드라이브를 포함한
+/// 실제 활성 폴더 경로를 정확히 조회
+fn get_known_folder_path(folder_id: &Guid) -> Option<PathBuf> {
+    unsafe {
+        let mut raw_ptr: *mut u16 = std::ptr::null_mut();
+        let hr = SHGetKnownFolderPath(folder_id, 0, 0, &mut raw_ptr);
+        if hr < 0 || raw_ptr.is_null() {
+            return None;
+        }
+        let mut len = 0usize;
+        while *raw_ptr.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(raw_ptr, len);
+        let path_str = String::from_utf16_lossy(slice);
+        CoTaskMemFree(raw_ptr as *mut std::ffi::c_void);
+        if path_str.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(path_str))
+        }
+    }
+}
+
 fn desktop_shortcut_path() -> PathBuf {
+    // FOLDERID_Desktop: {B4BFCC3A-DB2C-424C-B029-7FE99A87C641}
+    const FOLDERID_DESKTOP: Guid = Guid {
+        data1: 0xB4BFCC3A,
+        data2: 0xDB2C,
+        data3: 0x424C,
+        data4: [0xB0, 0x29, 0x7F, 0xE9, 0x9A, 0x87, 0xC6, 0x41],
+    };
+    if let Some(real_desk) = get_known_folder_path(&FOLDERID_DESKTOP) {
+        return real_desk.join("CoreFlow.lnk");
+    }
+
     let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Public".to_string());
-    let one_drive_desk = PathBuf::from(&user_profile).join("OneDrive").join("Desktop");
+    let one_drive_kr = PathBuf::from(&user_profile).join("OneDrive").join("바탕 화면");
+    let one_drive_en = PathBuf::from(&user_profile).join("OneDrive").join("Desktop");
     let std_desk = PathBuf::from(&user_profile).join("Desktop");
-    if std_desk.exists() {
-        std_desk.join("CoreFlow.lnk")
-    } else if one_drive_desk.exists() {
-        one_drive_desk.join("CoreFlow.lnk")
+    if one_drive_kr.exists() {
+        one_drive_kr.join("CoreFlow.lnk")
+    } else if one_drive_en.exists() {
+        one_drive_en.join("CoreFlow.lnk")
     } else {
         std_desk.join("CoreFlow.lnk")
     }
 }
 
 fn start_menu_shortcut_path() -> PathBuf {
+    // FOLDERID_Programs: {A77F5D77-2E2B-44C3-A6A2-ABA601054A51}
+    const FOLDERID_PROGRAMS: Guid = Guid {
+        data1: 0xA77F5D77,
+        data2: 0x2E2B,
+        data3: 0x44C3,
+        data4: [0xA6, 0xA2, 0xAB, 0xA6, 0x01, 0x05, 0x4A, 0x51],
+    };
+    if let Some(real_programs) = get_known_folder_path(&FOLDERID_PROGRAMS) {
+        return real_programs.join("CoreFlow.lnk");
+    }
+
     let app_data = env::var("APPDATA").unwrap_or_default();
     PathBuf::from(app_data)
         .join("Microsoft")
