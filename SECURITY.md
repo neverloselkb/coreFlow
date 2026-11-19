@@ -10,8 +10,8 @@ CoreFlow 프로젝트의 보안과 안전성 유지에 관심을 가져주셔서
 
 | 버전 | 지원 여부 | 비고 |
 | :--- | :---: | :--- |
-| **v1.0.10 (최신)** | ✅ 지원 | SHA-256 업데이트 무결성 검증 및 표준 Win32 API 적용 |
-| **v1.0.9 이하** | ❌ 미지원 | 앱 내 자동 업데이트 또는 [최신 릴리스](https://github.com/neverloselkb/coreFlow/releases) 설치 권장 |
+| **v1.0.11 (최신)** | ✅ 지원 | SHA-256 업데이트 무결성 검증 및 표준 Win32 API 적용 |
+| **v1.0.10 이하** | ❌ 미지원 | 앱 내 자동 업데이트 또는 [최신 릴리스](https://github.com/neverloselkb/coreFlow/releases) 설치 권장 |
 
 ---
 
