@@ -1837,7 +1837,7 @@ fn is_web_or_telemetry_port(port: u16) -> bool {
             | 9998
             // IRC / IRC-TLS 글로벌 채팅 서버 (Warframe, Soulframe 등)
             | 6665..=6669
-            | 6695..=6697
+            | 6695..=6699
             // XMPP 게임 채팅 서버 (LoL 등) 및 STUN/TURN 음성/릴레이 보조 포트
             | 5222
             | 5223
@@ -2021,12 +2021,24 @@ fn spawn_ping_monitor(
             (SocketAddr::from(([8, 8, 8, 8], 53)), "8.8.8.8 (Google DNS)"),
         ];
         let mut prev_ms: Option<f64> = None;
+        let mut prev_target_ip: Option<String> = None;
+        // 동일 게임 PID 실행 중 단기 HTTPS/API 소켓이 일시 종료되더라도 직전 최적 지역 서버 IP를 유지하여
+        // 해외 채팅/로비 서버로 핑이 튀는 현상(3ms <-> 180ms 요동)을 원천 방지
+        let mut sticky_server: Option<(u32, std::net::Ipv4Addr, u16, bool, Instant)> = None;
 
         loop {
             let (target_pid, game_title) = active_game_target
                 .lock()
                 .map(|g| (g.0, g.1.clone()))
                 .unwrap_or((0, String::new()));
+
+            if target_pid == 0 {
+                sticky_server = None;
+            } else if let Some((cached_pid, _, _, _, ts)) = sticky_server {
+                if cached_pid != target_pid || ts.elapsed() > Duration::from_secs(300) {
+                    sticky_server = None;
+                }
+            }
 
             let mut measured: Option<(f64, String, bool, String, u16)> = None;
 
@@ -2037,21 +2049,26 @@ fn spawn_ping_monitor(
                 // 모든 고유 원격 서버(게임 포트 + 지역 API 서버)를 함께 계층 점수로 평가하여
                 // 해외 채팅/텔레메트리 서버가 지역 서버를 가리는 현상을 게임 종류와 무관하게 원천 차단
                 let mut seen_ips = std::collections::HashSet::new();
-                let mut candidates = Vec::new();
+                let mut candidates: Vec<(std::net::Ipv4Addr, u16, bool)> = Vec::new();
                 for conn in &endpoints {
                     if seen_ips.insert(conn.remote_ip) {
-                        candidates.push(conn);
+                        candidates.push((conn.remote_ip, conn.remote_port, conn.is_game_port));
                         if candidates.len() >= 8 {
                             break;
                         }
                     }
                 }
+                if let Some((_, c_ip, c_port, c_is_game, _)) = sticky_server {
+                    if seen_ips.insert(c_ip) {
+                        candidates.push((c_ip, c_port, c_is_game));
+                    }
+                }
 
                 let mut best_score = -100000.0f64;
-                let mut best_conn: Option<(f64, String, bool, String, u16)> = None;
+                let mut best_conn: Option<(f64, String, bool, std::net::Ipv4Addr, u16, bool)> = None;
 
-                for conn in candidates {
-                    if let Some(rtt) = ping_remote_server(conn.remote_ip, conn.remote_port) {
+                for (remote_ip, remote_port, is_game_port) in candidates {
+                    if let Some(rtt) = ping_remote_server(remote_ip, remote_port) {
                         // 모든 온라인 게임 공통 다중 서버 계층 판별 알고리즘:
                         // - 1티어 (초근접 국내/지역 서버, RTT < 65ms): 가중치 +2500
                         // - 2티어 (아시아-태평양 근거리 서버, 65ms <= RTT < 115ms): 가중치 +1200
@@ -2065,13 +2082,13 @@ fn spawn_ping_monitor(
                         } else {
                             100.0
                         };
-                        let port_score = if conn.is_game_port { 400.0 } else { 0.0 };
+                        let port_score = if is_game_port { 400.0 } else { 0.0 };
                         let total_score = tier_score + port_score - rtt;
 
                         if total_score > best_score {
                             best_score = total_score;
                             let stage = if rtt < 115.0 {
-                                if conn.is_game_port {
+                                if is_game_port {
                                     "인게임 세션"
                                 } else {
                                     "게임 서버"
@@ -2079,14 +2096,17 @@ fn spawn_ping_monitor(
                             } else {
                                 "해외/로비"
                             };
-                            let label = format!("🎮 {} ({}: {}:{})", game_title, stage, conn.remote_ip, conn.remote_port);
-                            best_conn = Some((rtt, label, true, conn.remote_ip.to_string(), conn.remote_port));
+                            let label = format!("🎮 {} ({}: {}:{})", game_title, stage, remote_ip, remote_port);
+                            best_conn = Some((rtt, label, true, remote_ip, remote_port, is_game_port));
                         }
                     }
                 }
 
-                if let Some((rtt, label, is_game, s_ip, s_port)) = best_conn {
-                    measured = Some((rtt, label, is_game, s_ip, s_port));
+                if let Some((rtt, label, is_game, s_ip, s_port, s_is_game_port)) = best_conn {
+                    if rtt < 115.0 {
+                        sticky_server = Some((target_pid, s_ip, s_port, s_is_game_port, Instant::now()));
+                    }
+                    measured = Some((rtt, label, is_game, s_ip.to_string(), s_port));
                 }
             }
 
@@ -2104,14 +2124,23 @@ fn spawn_ping_monitor(
 
             if let Ok(mut guard) = ping_state.lock() {
                 if let Some((ms, label, is_game, s_ip, s_port)) = measured {
-                    let jitter = if let Some(prev) = prev_ms {
+                    let cur_key = if !s_ip.is_empty() { s_ip.clone() } else { label.clone() };
+                    let target_changed = prev_target_ip.as_deref() != Some(cur_key.as_str());
+                    let jitter = if target_changed {
+                        0.0
+                    } else if let Some(prev) = prev_ms {
                         (ms - prev).abs()
                     } else {
                         0.0
                     };
+                    prev_target_ip = Some(cur_key);
                     prev_ms = Some(ms);
                     guard.ping_ms = ms;
-                    guard.jitter_ms = guard.jitter_ms * 0.6 + jitter * 0.4;
+                    guard.jitter_ms = if target_changed {
+                        0.0
+                    } else {
+                        guard.jitter_ms * 0.6 + jitter * 0.4
+                    };
                     guard.online = true;
                     guard.target = label;
                     guard.is_game_ping = is_game;
