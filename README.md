@@ -6,7 +6,7 @@
 
 [![Language](https://img.shields.io/badge/Language-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20(Universal)-0078D6?logo=apple)](https://github.com/neverloselkb/coreFlow/releases)
-[![Version](https://img.shields.io/badge/Release-v1.0.9-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.10-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
 [![License](https://img.shields.io/badge/License-MIT-green)](#)
 
 </div>
@@ -83,6 +83,7 @@
 
 ## 📋 최근 주요 업데이트 내역 (Changelog)
 
+- **`v1.0.10`**: 미니 HUD 8방향 화면 위치 프리셋(3×3 그리드 + 마지막 위치 기억, 멀티 모니터·작업 표시줄 자동 대응) 추가, 게임별 수동 설정 없이 동작하는 범용 다중 IP 계층 핑 측정 알고리즘 및 IRC/XMPP/STUN 채팅·보조 포트 자동 분리 적용
 - **`v1.0.9`**: 언인스톨러(`Uninstall_CoreFlow.exe`) 버전 및 Windows '설치된 앱' 레지스트리(`DisplayVersion`) 자동 동기화, 프로그램 완전 제거 시 `%TEMP%` 호스트 이관 및 하위 `nvidia-smi` 프로세스 정리를 통한 설치 폴더(`C:\Program Files\CoreFlow`) 100% 완전 삭제 및 창 자동 종료 지원
 - **`v1.0.8`**: Windows 백신 오탐 방지 강화 — `VS_VERSIONINFO` 버전 리소스 및 `RT_MANIFEST` 내장, 업데이트 파일 SHA-256 해시/PE64 헤더 무결성 검증 추가, 외부 셸 호출 제거 및 표준 Win32 API(`ShellExecuteW`) 일원화
 - **`v1.0.7`**: 구버전(v1.0.5 이하) 업데이터로 업데이트 시 발생하던 재부팅 후 버전 롤백 현상 자가 복구 엔진 추가, 시작 프로그램 레지스트리 키 통합 및 자동 동기화
@@ -176,7 +177,7 @@ coreFlow/
 │       ├── tui_app.rs         # CoreFlow 메인 엔진 (하드웨어 센서·ETW FPS·내장 서버·대시보드/미니 HUD·자동 업데이터)
 │       └── setup.rs           # CoreFlow_Setup 전용 GUI 설치/제거 마법사 및 무인 업데이트 관리자
 ├── build.rs                   # Windows COFF(.rsrc) 아이콘·VS_VERSIONINFO·RT_MANIFEST 순수 Rust 생성기
-├── Cargo.toml                 # Rust 패키지 및 바이너리 타겟 메타데이터 (v1.0.9)
+├── Cargo.toml                 # Rust 패키지 및 바이너리 타겟 메타데이터 (v1.0.10)
 └── README.md                  # 프로젝트 소개 및 매뉴얼 문서
 ```
 
