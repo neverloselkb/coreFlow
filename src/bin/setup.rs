@@ -965,9 +965,16 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         }
     }
 
-    // 바로가기 삭제
+    // 바로가기 삭제 (실제 바탕화면 + 구버전 빈 Desktop 폴더 잔여 바로가기 함께 정리)
     let desk_lnk = desktop_shortcut_path();
-    if desk_lnk.exists() && fs::remove_file(&desk_lnk).is_ok() {
+    let mut removed_desk = desk_lnk.exists() && fs::remove_file(&desk_lnk).is_ok();
+    if let Ok(up) = env::var("USERPROFILE") {
+        let legacy_desk = PathBuf::from(up).join("Desktop").join("CoreFlow.lnk");
+        if legacy_desk != desk_lnk && legacy_desk.exists() && fs::remove_file(&legacy_desk).is_ok() {
+            removed_desk = true;
+        }
+    }
+    if removed_desk {
         steps.push("바탕화면 바로가기 아이콘 삭제 완료".to_string());
     }
     let sm_lnk = start_menu_shortcut_path();
@@ -1013,6 +1020,14 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
 
     if !keep_user_data {
         let _ = fs::remove_dir_all(install_dir.join("logs"));
+        // %LOCALAPPDATA%\CoreFlow 영구 설정·로그 폴더 및 임시 웹뷰 프로필도 함께 완전 정리
+        if let Ok(local_app) = env::var("LOCALAPPDATA") {
+            let app_data_dir = PathBuf::from(local_app).join("CoreFlow");
+            if app_data_dir.exists() {
+                let _ = fs::remove_dir_all(&app_data_dir);
+            }
+        }
+        let _ = fs::remove_dir_all(env::temp_dir().join("rustcord_app_profile"));
         for f in &[
             "coreflow_todos.json",
             "coreflow_alerts.json",
@@ -1067,15 +1082,23 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
 }
 
 fn find_browser_executable() -> Option<String> {
-    let candidates = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    let mut candidates = vec![
+        PathBuf::from(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+        PathBuf::from(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+        PathBuf::from(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        PathBuf::from(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        PathBuf::from(r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        PathBuf::from(r"C:\Program Files\Naver\Naver Whale\Application\whale.exe"),
     ];
+    if let Ok(local_app) = env::var("LOCALAPPDATA") {
+        let la = PathBuf::from(local_app);
+        candidates.push(la.join(r"Google\Chrome\Application\chrome.exe"));
+        candidates.push(la.join(r"BraveSoftware\Brave-Browser\Application\brave.exe"));
+        candidates.push(la.join(r"Naver\Naver Whale\Application\whale.exe"));
+    }
     for path in candidates {
-        if Path::new(path).exists() {
-            return Some(path.to_string());
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
         }
     }
     None

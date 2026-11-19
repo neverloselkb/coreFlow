@@ -105,6 +105,7 @@ extern "system" {
     fn GetWindowLongW(hWnd: isize, nIndex: i32) -> i32;
     fn SetWindowLongW(hWnd: isize, nIndex: i32, dwNewLong: i32) -> i32;
     fn SetLayeredWindowAttributes(hWnd: isize, crKey: u32, bAlpha: u8, dwFlags: u32) -> i32;
+    fn GetSystemMetrics(nIndex: i32) -> i32;
 }
 
 #[cfg(target_os = "windows")]
@@ -3734,16 +3735,7 @@ fn persistent_config_path(filename: &str) -> std::path::PathBuf {
 
 fn write_persistent_config(filename: &str, bytes: &[u8]) -> bool {
     let primary = persistent_config_path(filename);
-    let ok = std::fs::write(&primary, bytes).is_ok();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let legacy = dir.join(filename);
-            if legacy != primary {
-                let _ = std::fs::write(&legacy, bytes);
-            }
-        }
-    }
-    ok
+    std::fs::write(&primary, bytes).is_ok()
 }
 
 fn bounds_file_path() -> std::path::PathBuf {
@@ -4331,7 +4323,8 @@ fn launch_desktop_window(url: &str) {
     let mini_state = load_minihud_state();
     let profile_dir = std::env::temp_dir().join("rustcord_app_profile");
 
-    let (win_w, win_h, win_x, win_y, has_pos) = if mini_state.is_mini {
+    #[allow(unused_mut)]
+    let (win_w, win_h, win_x, win_y, mut has_pos) = if mini_state.is_mini {
         let w = if mini_state.mini_w >= 220 { mini_state.mini_w } else if mini_state.wide { 760 } else { 450 };
         let h = if mini_state.mini_h >= 100 { mini_state.mini_h } else if mini_state.wide { 168 } else { 265 };
         let has_p = mini_state.mini_x > -10000 && mini_state.mini_y > -10000 && (mini_state.mini_x != 0 || mini_state.mini_y != 0);
@@ -4339,6 +4332,26 @@ fn launch_desktop_window(url: &str) {
     } else {
         (bounds.w, bounds.h, bounds.x, bounds.y, bounds.has_pos)
     };
+
+    // 멀티 모니터 분리 후 이전 모니터 좌표가 현재 가상 화면 바깥으로 벗어나 창이 안 보이는 현상 원천 방지
+    #[cfg(target_os = "windows")]
+    if has_pos {
+        let (vx, vy, vw, vh) = unsafe {
+            (
+                GetSystemMetrics(76), // SM_XVIRTUALSCREEN
+                GetSystemMetrics(77), // SM_YVIRTUALSCREEN
+                GetSystemMetrics(78), // SM_CXVIRTUALSCREEN
+                GetSystemMetrics(79), // SM_CYVIRTUALSCREEN
+            )
+        };
+        if vw > 0 && vh > 0 {
+            let outside_x = win_x + 120 < vx || win_x > vx + vw - 120;
+            let outside_y = win_y + 60 < vy || win_y > vy + vh - 60;
+            if outside_x || outside_y {
+                has_pos = false;
+            }
+        }
+    }
 
     let launch_url = if mini_state.is_mini {
         format!("{url}?mini=1")
@@ -4348,17 +4361,26 @@ fn launch_desktop_window(url: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        let edge_paths = [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        let mut browser_paths: Vec<std::path::PathBuf> = vec![
+            std::path::PathBuf::from(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            std::path::PathBuf::from(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\Naver\Naver Whale\Application\whale.exe"),
         ];
+        if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+            let la = std::path::PathBuf::from(local_app);
+            browser_paths.push(la.join(r"Google\Chrome\Application\chrome.exe"));
+            browser_paths.push(la.join(r"BraveSoftware\Brave-Browser\Application\brave.exe"));
+            browser_paths.push(la.join(r"Naver\Naver Whale\Application\whale.exe"));
+        }
 
-        for path in edge_paths {
-            if std::path::Path::new(path).exists() {
+        for path in &browser_paths {
+            if path.exists() {
                 let mut cmd = Command::new(path);
-                cmd.arg(format!("--app={launch_url}"))
+                cmd.current_dir(std::env::temp_dir())
+                    .arg(format!("--app={launch_url}"))
                     .arg(format!("--user-data-dir={}", profile_dir.display()))
                     .arg(format!("--window-size={win_w},{win_h}"))
                     .arg("--new-window")
