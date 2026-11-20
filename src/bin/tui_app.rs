@@ -6,7 +6,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     thread,
@@ -956,6 +956,9 @@ fn resolve_and_get_proc_icon(exe_name: &str) -> Option<Vec<u8>> {
     if let Some(full_path) = candidate_path {
         let extracted = extract_exe_icon_ico(&full_path);
         if let Ok(mut cache) = get_icon_cache().lock() {
+            if cache.len() >= 512 {
+                cache.clear();
+            }
             cache.insert(key, extracted.clone());
         }
         extracted
@@ -1261,7 +1264,7 @@ fn verify_downloaded_installer(
 
 #[cfg(target_os = "windows")]
 /// GitHub Release에서 최신 `CoreFlow_Setup.exe`를 다운로드하여 무인 업데이트(`--silent-update`) 실행
-fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
+fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>) -> String {
     if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
         && !download_url.starts_with("https://objects.githubusercontent.com/")
     {
@@ -1306,8 +1309,9 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
         current_install_dir = r"C:\Program Files\CoreFlow".to_string();
     }
 
-    if let Ok(guard) = state.lock() {
-        save_game_sessions(&guard.game_sessions);
+    let sessions_to_save = state.lock().ok().map(|g| g.game_sessions.clone());
+    if let Some(sessions) = sessions_to_save {
+        save_game_sessions(&sessions);
     }
 
     let spawn_res = Command::new(&tmp_installer)
@@ -1337,7 +1341,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
 
 #[cfg(target_os = "macos")]
 /// GitHub Release에서 최신 `CoreFlow-macOS-universal.zip`을 다운로드하여 앱 번들 교체 및 자동 재시작
-fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>>) -> String {
+fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>) -> String {
     if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
         && !download_url.starts_with("https://objects.githubusercontent.com/")
     {
@@ -1402,8 +1406,9 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
     let target_app_str = current_app_bundle.to_string_lossy().to_string();
     let extracted_app_str = extracted_app.to_string_lossy().to_string();
 
-    if let Ok(guard) = state.lock() {
-        save_game_sessions(&guard.game_sessions);
+    let sessions_to_save = state.lock().ok().map(|g| g.game_sessions.clone());
+    if let Some(sessions) = sessions_to_save {
+        save_game_sessions(&sessions);
     }
 
     // 백그라운드 쉘 스크립트 실행: 0.5초 대기 -> 기존 .app 삭제 -> 새 .app 복사 -> 격리 속성 해제 -> 앱 재실행
@@ -1430,7 +1435,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedState>
 }
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-fn perform_github_self_update(_download_url: &str, _state: &Arc<Mutex<SharedState>>) -> String {
+fn perform_github_self_update(_download_url: &str, _state: &Arc<Mutex<SharedMeta>>) -> String {
     r#"{"ok":false,"error":"지원되지 않는 운영체제입니다."}"#.to_string()
 }
 
@@ -2277,11 +2282,12 @@ fn spawn_gpu_monitor(gpu_state: Arc<Mutex<GpuMetrics>>) {
                     }
                 }
                 let _ = proc.kill();
+                let _ = proc.wait();
             }
             Err(_) => {
                 // AMD Radeon, Intel Arc 및 비 NVIDIA 그래픽 카드: Windows 공통 성능 카운터 및 WMI 폴백
                 poll_generic_windows_gpu(&gpu_state);
-                thread::sleep(Duration::from_millis(1500));
+                thread::sleep(Duration::from_secs(3));
             }
         }
         thread::sleep(Duration::from_secs(2));
@@ -2441,16 +2447,32 @@ fn detect_system_cpu_temp() -> Option<f32> {
 
 fn spawn_cpu_thermal_monitor(cpu_temp: Arc<Mutex<Option<f32>>>) {
     thread::spawn(move || {
-        let mut sys = sysinfo::System::new_all();
+        let mut sys = sysinfo::System::new_with_specifics(
+            sysinfo::RefreshKind::nothing()
+                .with_cpu(sysinfo::CpuRefreshKind::everything()),
+        );
         let mut smoothed_temp = 43.0f32;
-        let mut last_physical_check = Instant::now() - Duration::from_secs(10);
+        let mut last_physical_check = Instant::now() - Duration::from_secs(600);
         let mut physical_sensor_val: Option<f32> = None;
+        let mut consecutive_none: u32 = 0;
 
         loop {
-            // 5초마다 물리 센서(WMI/LHM/OHM/ACPI) 확인
-            if last_physical_check.elapsed() >= Duration::from_secs(5) {
+            // 물리 센서(WMI/LHM/OHM/ACPI) 확인:
+            // 센서가 감지되면 10초마다, 3회 연속 미감지(대부분의 데스크톱) 시 5분마다만 확인하여
+            // 불필요한 PowerShell/WMI 프로세스 폭주를 원천 차단
+            let check_interval = if consecutive_none >= 3 {
+                Duration::from_secs(300)
+            } else {
+                Duration::from_secs(10)
+            };
+            if last_physical_check.elapsed() >= check_interval {
                 last_physical_check = Instant::now();
                 physical_sensor_val = detect_system_cpu_temp();
+                if physical_sensor_val.is_some() {
+                    consecutive_none = 0;
+                } else {
+                    consecutive_none = consecutive_none.saturating_add(1);
+                }
             }
 
             let final_temp = if let Some(real) = physical_sensor_val {
@@ -3075,16 +3097,33 @@ fn save_game_sessions(sessions: &[GameSessionRecord]) {
     let _ = std::fs::write(path, out.as_bytes());
 }
 
-struct SharedState {
-    sys: System,
-    networks: Networks,
-    disks: Arc<Mutex<Vec<String>>>,
-    gpu: Arc<Mutex<GpuMetrics>>,
-    cpu_temp: Arc<Mutex<Option<f32>>>,
-    theme: Arc<Mutex<WindowsTheme>>,
-    ping: Arc<Mutex<PingMetrics>>,
-    active_game_target: Arc<Mutex<(u32, String)>>,
-    user_name: String,
+static REFRESH_STAGE: AtomicU32 = AtomicU32::new(0);
+
+fn refresh_stage_name(stage: u32) -> &'static str {
+    match stage {
+        0 => "idle",
+        1 => "cpu_mem",
+        2 => "processes",
+        3 => "networks",
+        4 => "monitors",
+        5 => "foreground_window",
+        6 => "build_json",
+        7 => "save_sessions",
+        _ => "unknown",
+    }
+}
+
+#[derive(Clone)]
+struct ProcSnap {
+    pid: u32,
+    name: String,
+    exe_path: Option<std::path::PathBuf>,
+    cpu: f32,
+    memory: u64,
+}
+
+/// HTTP 핸들러와 백그라운드 수집 스레드 간 초경량 공유 메타데이터 (마이크로초 단위로만 잠금, OS/디스크 I/O 절대 금지)
+struct SharedMeta {
     startup_enabled: bool,
     target_proc: String,
     client_fps: f32,
@@ -3094,13 +3133,53 @@ struct SharedState {
     active_game_pid: u32,
     active_game_name: String,
     active_game_exe: String,
+    cached_json: String,
+    proc_snaps: Vec<ProcSnap>,
+    force_refresh: bool,
+}
+
+impl SharedMeta {
+    fn new() -> Self {
+        Self {
+            startup_enabled: query_startup_enabled(),
+            target_proc: "auto".to_string(),
+            client_fps: 0.0,
+            client_low1_fps: 0.0,
+            game_sessions: load_game_sessions(),
+            custom_games: load_custom_games(),
+            active_game_pid: 0,
+            active_game_name: String::new(),
+            active_game_exe: String::new(),
+            cached_json: String::new(),
+            proc_snaps: Vec::new(),
+            force_refresh: false,
+        }
+    }
+}
+
+/// 전용 백그라운드 수집 스레드가 단독 소유하는 시스템 메트릭 수집기 (HTTP 요청 스레드와 잠금 경합 원천 제거)
+struct StatsCollector {
+    sys: System,
+    networks: Networks,
+    disks: Arc<Mutex<Vec<String>>>,
+    gpu: Arc<Mutex<GpuMetrics>>,
+    cpu_temp: Arc<Mutex<Option<f32>>>,
+    theme: Arc<Mutex<WindowsTheme>>,
+    ping: Arc<Mutex<PingMetrics>>,
+    active_game_target: Arc<Mutex<(u32, String)>>,
+    user_name: String,
+    cpu_brand: String,
+    os_name: String,
+    active_game_pid: u32,
+    active_game_name: String,
+    active_game_exe: String,
     was_game_active: bool,
     last_game_log_save: Instant,
     last_refresh: Instant,
-    cached_json: String,
+    net_full_refresh_tick: u32,
 }
 
-impl SharedState {
+impl StatsCollector {
     fn new(
         gpu: Arc<Mutex<GpuMetrics>>,
         cpu_temp: Arc<Mutex<Option<f32>>>,
@@ -3109,14 +3188,32 @@ impl SharedState {
         disks: Arc<Mutex<Vec<String>>>,
         active_game_target: Arc<Mutex<(u32, String)>>,
     ) -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        let proc_kind = sysinfo::ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_disk_usage()
+            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
+        let mut sys = System::new_with_specifics(
+            sysinfo::RefreshKind::nothing()
+                .with_cpu(sysinfo::CpuRefreshKind::everything())
+                .with_memory(sysinfo::MemoryRefreshKind::everything())
+                .with_processes(proc_kind),
+        );
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
         let networks = Networks::new_with_refreshed_list();
         let user_name = query_windows_user_name();
-        let startup_enabled = query_startup_enabled();
-        let game_sessions = load_game_sessions();
-        let custom_games = load_custom_games();
-        let mut state = Self {
+        let cpu_brand = sys
+            .cpus()
+            .first()
+            .map(|c| json_escape(c.brand()))
+            .unwrap_or_else(|| "Unknown CPU".to_string());
+        let os_name = System::long_os_version()
+            .or_else(System::name)
+            .map(|s| json_escape(&s))
+            .unwrap_or_else(|| "Windows".to_string());
+
+        Self {
             sys,
             networks,
             disks,
@@ -3126,127 +3223,124 @@ impl SharedState {
             ping,
             active_game_target,
             user_name,
-            startup_enabled,
-            target_proc: "auto".to_string(),
-            client_fps: 0.0,
-            client_low1_fps: 0.0,
-            game_sessions,
-            custom_games,
+            cpu_brand,
+            os_name,
             active_game_pid: 0,
             active_game_name: String::new(),
             active_game_exe: String::new(),
             was_game_active: false,
             last_game_log_save: Instant::now(),
             last_refresh: Instant::now() - Duration::from_secs(2),
-            cached_json: String::new(),
-        };
-        state.refresh_if_needed();
-        state
+            net_full_refresh_tick: 0,
+        }
     }
 
-    fn refresh_if_needed(&mut self) -> &str {
-        if self.last_refresh.elapsed() >= Duration::from_millis(800) || self.cached_json.is_empty()
-        {
-            let dt_secs = self.last_refresh.elapsed().as_secs_f64().clamp(0.2, 5.0);
-            self.last_refresh = Instant::now();
-            self.sys.refresh_cpu_usage();
-            self.sys.refresh_memory();
-            self.sys
-                .refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-            self.networks.refresh(true);
+    fn refresh_once(&mut self, meta: &Arc<Mutex<SharedMeta>>) {
+        let dt_secs = self.last_refresh.elapsed().as_secs_f64().clamp(0.2, 5.0);
+        self.last_refresh = Instant::now();
 
-            let global_cpu = self.sys.global_cpu_usage();
-            let cpus: Vec<String> = self
-                .sys
-                .cpus()
-                .iter()
-                .map(|c| format!("{:.1}", c.cpu_usage()))
-                .collect();
+        REFRESH_STAGE.store(1, Ordering::SeqCst);
+        self.sys.refresh_cpu_usage();
+        self.sys.refresh_memory();
 
-            let total_mem = self.sys.total_memory();
-            let used_mem = self.sys.used_memory();
-            let total_swap = self.sys.total_swap();
-            let used_swap = self.sys.used_swap();
-            let uptime = System::uptime();
+        // PEB 메모리 원격 읽기(cmd/cwd/environ) 및 토큰 조회(user)를 완전히 생략하여
+        // Windows 보안 소프트웨어/안티치트/중단된 프로세스와의 교착(Deadlock)을 원천 차단
+        REFRESH_STAGE.store(2, Ordering::SeqCst);
+        let proc_kind = sysinfo::ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_disk_usage()
+            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
+        self.sys
+            .refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, proc_kind);
 
-            let cpu_brand = self
-                .sys
-                .cpus()
-                .first()
-                .map(|c| json_escape(c.brand()))
-                .unwrap_or_else(|| "Unknown CPU".to_string());
+        REFRESH_STAGE.store(3, Ordering::SeqCst);
+        self.net_full_refresh_tick = self.net_full_refresh_tick.wrapping_add(1);
+        let refresh_net_list = self.net_full_refresh_tick % 10 == 1;
+        self.networks.refresh(refresh_net_list);
 
-            let os_name = System::long_os_version()
-                .or_else(System::name)
-                .map(|s| json_escape(&s))
-                .unwrap_or_else(|| "Windows".to_string());
+        REFRESH_STAGE.store(4, Ordering::SeqCst);
+        let global_cpu = self.sys.global_cpu_usage();
+        let cpus: Vec<String> = self
+            .sys
+            .cpus()
+            .iter()
+            .map(|c| format!("{:.1}", c.cpu_usage()))
+            .collect();
 
-            let gpu_data = self.gpu.lock().map(|g| g.clone()).unwrap_or_default();
-            let theme_data = self.theme.lock().map(|t| t.clone()).unwrap_or_default();
-            let ping_data = self.ping.lock().map(|p| p.clone()).unwrap_or_default();
+        let total_mem = self.sys.total_memory();
+        let used_mem = self.sys.used_memory();
+        let total_swap = self.sys.total_swap();
+        let used_swap = self.sys.used_swap();
+        let uptime = System::uptime();
 
-            // 네트워크 실시간 다운로드/업로드 속도 및 인터페이스별 트래픽 집계
-            let mut total_rx_delta = 0u64;
-            let mut total_tx_delta = 0u64;
-            let mut total_rx_cum = 0u64;
-            let mut total_tx_cum = 0u64;
-            let mut active_iface = String::from("Ethernet / Wi-Fi");
-            let mut best_iface_bytes = 0u64;
-            let mut ifaces_json = Vec::new();
+        let gpu_data = self.gpu.lock().map(|g| g.clone()).unwrap_or_default();
+        let theme_data = self.theme.lock().map(|t| t.clone()).unwrap_or_default();
+        let ping_data = self.ping.lock().map(|p| p.clone()).unwrap_or_default();
 
-            for (iface_name, net_data) in &self.networks {
-                let name_lower = iface_name.to_lowercase();
-                if name_lower.contains("loopback") || name_lower.starts_with("lo") {
-                    continue;
-                }
-                let rx_d = net_data.received();
-                let tx_d = net_data.transmitted();
-                let rx_tot = net_data.total_received();
-                let tx_tot = net_data.total_transmitted();
-                total_rx_delta = total_rx_delta.saturating_add(rx_d);
-                total_tx_delta = total_tx_delta.saturating_add(tx_d);
-                total_rx_cum = total_rx_cum.saturating_add(rx_tot);
-                total_tx_cum = total_tx_cum.saturating_add(tx_tot);
+        // 네트워크 실시간 다운로드/업로드 속도 및 인터페이스별 트래픽 집계
+        let mut total_rx_delta = 0u64;
+        let mut total_tx_delta = 0u64;
+        let mut total_rx_cum = 0u64;
+        let mut total_tx_cum = 0u64;
+        let mut active_iface = String::from("Ethernet / Wi-Fi");
+        let mut best_iface_bytes = 0u64;
+        let mut ifaces_json = Vec::new();
 
-                let score = (rx_d + tx_d).max(rx_tot / 1024);
-                if score > best_iface_bytes {
-                    best_iface_bytes = score;
-                    active_iface = iface_name.to_string();
-                }
+        for (iface_name, net_data) in &self.networks {
+            let name_lower = iface_name.to_lowercase();
+            if name_lower.contains("loopback") || name_lower.starts_with("lo") {
+                continue;
+            }
+            let rx_d = net_data.received();
+            let tx_d = net_data.transmitted();
+            let rx_tot = net_data.total_received();
+            let tx_tot = net_data.total_transmitted();
+            total_rx_delta = total_rx_delta.saturating_add(rx_d);
+            total_tx_delta = total_tx_delta.saturating_add(tx_d);
+            total_rx_cum = total_rx_cum.saturating_add(rx_tot);
+            total_tx_cum = total_tx_cum.saturating_add(tx_tot);
 
-                if rx_tot > 0 || tx_tot > 0 {
-                    let rx_mbs = (rx_d as f64 / dt_secs) / 1_048_576.0;
-                    let tx_mbs = (tx_d as f64 / dt_secs) / 1_048_576.0;
-                    ifaces_json.push(format!(
-                        r#"{{"name":"{}","rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_total_gb":{:.2},"tx_total_gb":{:.2}}}"#,
-                        json_escape(iface_name),
-                        rx_mbs,
-                        tx_mbs,
-                        rx_tot as f64 / 1_073_741_824.0,
-                        tx_tot as f64 / 1_073_741_824.0
-                    ));
-                }
+            let score = (rx_d + tx_d).max(rx_tot / 1024);
+            if score > best_iface_bytes {
+                best_iface_bytes = score;
+                active_iface = iface_name.to_string();
             }
 
-            let net_rx_mb_s = (total_rx_delta as f64 / dt_secs) / 1_048_576.0;
-            let net_tx_mb_s = (total_tx_delta as f64 / dt_secs) / 1_048_576.0;
-            let net_rx_mbps = net_rx_mb_s * 8.0;
-            let net_tx_mbps = net_tx_mb_s * 8.0;
-            let net_rx_total_gb = total_rx_cum as f64 / 1_073_741_824.0;
-            let net_tx_total_gb = total_tx_cum as f64 / 1_073_741_824.0;
+            if rx_tot > 0 || tx_tot > 0 {
+                let rx_mbs = (rx_d as f64 / dt_secs) / 1_048_576.0;
+                let tx_mbs = (tx_d as f64 / dt_secs) / 1_048_576.0;
+                ifaces_json.push(format!(
+                    r#"{{"name":"{}","rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_total_gb":{:.2},"tx_total_gb":{:.2}}}"#,
+                    json_escape(iface_name),
+                    rx_mbs,
+                    tx_mbs,
+                    rx_tot as f64 / 1_073_741_824.0,
+                    tx_tot as f64 / 1_073_741_824.0
+                ));
+            }
+        }
 
-            // 디스크 드라이브별 용량 집계 (백그라운드 스레드에서 안전 갱신된 캐시 즉시 복사)
-            let disks_json = self.disks.lock().map(|d| d.clone()).unwrap_or_default();
+        let net_rx_mb_s = (total_rx_delta as f64 / dt_secs) / 1_048_576.0;
+        let net_tx_mb_s = (total_tx_delta as f64 / dt_secs) / 1_048_576.0;
+        let net_rx_mbps = net_rx_mb_s * 8.0;
+        let net_tx_mbps = net_tx_mb_s * 8.0;
+        let net_rx_total_gb = total_rx_cum as f64 / 1_073_741_824.0;
+        let net_tx_total_gb = total_tx_cum as f64 / 1_073_741_824.0;
 
-            let mut procs: Vec<_> = self.sys.processes().values().collect();
-            // 전체 프로세스의 실시간 디스크 Read/Write 바이트 합산 및 실행 파일 경로 맵 갱신
-            let mut total_disk_read_delta = 0u64;
-            let mut total_disk_write_delta = 0u64;
-            if let Ok(mut pmap) = get_exe_path_map().lock() {
-                for p in &procs {
-                    let du = p.disk_usage();
-                    total_disk_read_delta = total_disk_read_delta.saturating_add(du.read_bytes);
-                    total_disk_write_delta = total_disk_write_delta.saturating_add(du.written_bytes);
+        // 디스크 드라이브별 용량 집계 (백그라운드 스레드에서 안전 갱신된 캐시 즉시 복사)
+        let disks_json = self.disks.lock().map(|d| d.clone()).unwrap_or_default();
+
+        let mut procs: Vec<_> = self.sys.processes().values().collect();
+        // 전체 프로세스의 실시간 디스크 Read/Write 바이트 합산 및 실행 파일 경로 맵 갱신
+        let mut total_disk_read_delta = 0u64;
+        let mut total_disk_write_delta = 0u64;
+        if let Ok(mut pmap) = get_exe_path_map().lock() {
+            for p in &procs {
+                let du = p.disk_usage();
+                total_disk_read_delta = total_disk_read_delta.saturating_add(du.read_bytes);
+                total_disk_write_delta = total_disk_write_delta.saturating_add(du.written_bytes);
+                if pmap.len() < 1024 {
                     if let Some(exe_p) = p.exe() {
                         let key = p.name().to_string_lossy().to_lowercase();
                         if !pmap.contains_key(&key) {
@@ -3257,226 +3351,272 @@ impl SharedState {
                         }
                     }
                 }
-            } else {
-                for p in &procs {
-                    let du = p.disk_usage();
-                    total_disk_read_delta = total_disk_read_delta.saturating_add(du.read_bytes);
-                    total_disk_write_delta = total_disk_write_delta.saturating_add(du.written_bytes);
-                }
             }
-            let disk_read_mb_s = (total_disk_read_delta as f64 / dt_secs) / 1_048_576.0;
-            let disk_write_mb_s = (total_disk_write_delta as f64 / dt_secs) / 1_048_576.0;
+        } else {
+            for p in &procs {
+                let du = p.disk_usage();
+                total_disk_read_delta = total_disk_read_delta.saturating_add(du.read_bytes);
+                total_disk_write_delta = total_disk_write_delta.saturating_add(du.written_bytes);
+            }
+        }
+        let disk_read_mb_s = (total_disk_read_delta as f64 / dt_secs) / 1_048_576.0;
+        let disk_write_mb_s = (total_disk_write_delta as f64 / dt_secs) / 1_048_576.0;
 
-            procs.sort_by(|a, b| b.memory().cmp(&a.memory()));
+        procs.sort_by(|a, b| b.memory().cmp(&a.memory()));
 
-            // 현재 DXGI / D3D9 Present(하드웨어 프레임 출력)가 활성화된 프로세스별 실제 FPS 맵 조회
-            let pid_fps_map = query_all_active_pid_fps();
-            let fg_info = get_foreground_window_info();
-            let fg_pid_now = fg_info.as_ref().map(|(pid, _)| *pid).unwrap_or(0);
+        // 현재 DXGI / D3D9 Present(하드웨어 프레임 출력)가 활성화된 프로세스별 실제 FPS 맵 조회
+        let pid_fps_map = query_all_active_pid_fps();
 
-            // 실행 중인 실제 게임 또는 사용자가 수동 지정한 타겟 프로세스 감지
-            let mut detected_game_name = String::new();
-            let mut detected_game_exe = String::new();
-            let mut detected_game_pid = 0u32;
-            let mut detected_game_cpu = 0.0f32;
-            let mut detected_game_mem_mb = 0.0f64;
-            let mut detected_game_run_secs = 0u64;
-            let mut detected_game_start_ts = 0u64;
+        REFRESH_STAGE.store(5, Ordering::SeqCst);
+        let fg_info = get_foreground_window_info();
+        let fg_pid_now = fg_info.as_ref().map(|(pid, _)| *pid).unwrap_or(0);
 
-            // 1. 사용자가 수동으로 타겟 프로세스를 지정한 경우 (동일 실행 파일이 여러 개면 실제 DXGI 렌더링 중인 PID 우선)
-            if self.target_proc != "auto" && !self.target_proc.is_empty() {
-                let mut best_manual: Option<&sysinfo::Process> = None;
-                for p in &procs {
-                    let pname_raw = p.name().to_string_lossy();
-                    if pname_raw.eq_ignore_ascii_case(&self.target_proc) {
-                        let pid = p.pid().as_u32();
-                        let has_fps = pid_fps_map.get(&pid).map_or(false, |m| m.fps >= 1.0);
-                        if has_fps || best_manual.is_none() {
-                            best_manual = Some(p);
-                            if has_fps {
-                                break;
-                            }
+        REFRESH_STAGE.store(6, Ordering::SeqCst);
+        let (target_proc, custom_games, startup_enabled) = {
+            let guard = meta.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                guard.target_proc.clone(),
+                guard.custom_games.clone(),
+                guard.startup_enabled,
+            )
+        };
+
+        // 실행 중인 실제 게임 또는 사용자가 수동 지정한 타겟 프로세스 감지
+        let mut detected_game_name = String::new();
+        let mut detected_game_exe = String::new();
+        let mut detected_game_pid = 0u32;
+        let mut detected_game_cpu = 0.0f32;
+        let mut detected_game_mem_mb = 0.0f64;
+        let mut detected_game_run_secs = 0u64;
+        let mut detected_game_start_ts = 0u64;
+
+        // 1. 사용자가 수동으로 타겟 프로세스를 지정한 경우 (동일 실행 파일이 여러 개면 실제 DXGI 렌더링 중인 PID 우선)
+        if target_proc != "auto" && !target_proc.is_empty() {
+            let mut best_manual: Option<&sysinfo::Process> = None;
+            for p in &procs {
+                let pname_raw = p.name().to_string_lossy();
+                if pname_raw.eq_ignore_ascii_case(&target_proc) {
+                    let pid = p.pid().as_u32();
+                    let has_fps = pid_fps_map.get(&pid).map_or(false, |m| m.fps >= 1.0);
+                    if has_fps || best_manual.is_none() {
+                        best_manual = Some(p);
+                        if has_fps {
+                            break;
                         }
                     }
                 }
-                if let Some(p) = best_manual {
-                    let pname_raw = p.name().to_string_lossy();
-                    let m = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games);
-                    detected_game_name = m
-                        .map(|g| g.name)
-                        .unwrap_or_else(|| pname_raw.to_string());
-                    detected_game_exe = pname_raw.into_owned();
-                    detected_game_pid = p.pid().as_u32();
-                    detected_game_cpu = p.cpu_usage();
-                    detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                    detected_game_run_secs = p.run_time();
-                    detected_game_start_ts = p.start_time();
+            }
+            if let Some(p) = best_manual {
+                let pname_raw = p.name().to_string_lossy();
+                let m = detect_game_from_process(&pname_raw, p.exe(), &custom_games);
+                detected_game_name = m
+                    .map(|g| g.name)
+                    .unwrap_or_else(|| pname_raw.to_string());
+                detected_game_exe = pname_raw.into_owned();
+                detected_game_pid = p.pid().as_u32();
+                detected_game_cpu = p.cpu_usage();
+                detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                detected_game_run_secs = p.run_time();
+                detected_game_start_ts = p.start_time();
+            }
+        }
+
+        // 2. "auto" 자동 감지 모드인 경우 (듀얼 모니터 포커스 전환에 흔들리지 않는 다단계 스마트 감지 엔진)
+        if detected_game_name.is_empty() && target_proc == "auto" {
+            let mut best_score = 0u32;
+            for p in &procs {
+                let pname_raw = p.name().to_string_lossy();
+                if let Some(m) = detect_game_from_process(&pname_raw, p.exe(), &custom_games) {
+                    let pid = p.pid().as_u32();
+                    let mut score: u32 = match m.confidence {
+                        "custom" => 100,
+                        "known" => 95,
+                        "path" => 90,
+                        "engine" => 85,
+                        _ => 70,
+                    };
+                    if pid_fps_map.get(&pid).map_or(false, |f| f.fps >= 1.0) {
+                        score += 100;
+                    }
+                    if pid == fg_pid_now && pid > 0 {
+                        score += 25;
+                    }
+                    if pid == self.active_game_pid && pid > 0 {
+                        score += 15;
+                    }
+                    if score > best_score {
+                        best_score = score;
+                        detected_game_name = m.name;
+                        detected_game_exe = pname_raw.into_owned();
+                        detected_game_pid = pid;
+                        detected_game_cpu = p.cpu_usage();
+                        detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                        detected_game_run_secs = p.run_time();
+                        detected_game_start_ts = p.start_time();
+                    }
                 }
             }
 
-            // 2. "auto" 자동 감지 모드인 경우 (듀얼 모니터 포커스 전환에 흔들리지 않는 다단계 스마트 감지 엔진)
-            if detected_game_name.is_empty() && self.target_proc == "auto" {
-                // Step 1: 전체 프로세스 대상 공식 게임 DB / 영구 등록 게임 / Steam·Epic·Riot·배틀넷 경로 / 언리얼·유니티 엔진 매칭 최우선 탐색
-                // -> 다른 모니터의 브라우저나 다른 앱을 클릭해도 실제 실행 중인 게임을 항상 1순위로 유지하며,
-                //    런처 스텁보다 실제 DXGI/D3D9 3D 프레임을 렌더링 중인 게임 프로세스(PID)에 가점(+100)을 부여합니다.
-                let mut best_score = 0u32;
-                for p in &procs {
+            // Step 2: 이전에 감지되어 활성화된 게임이 아직 살아있는지 확인 (알트탭 / 듀얼 모니터 다른 창 클릭 시 세션 고정)
+            if detected_game_name.is_empty() && self.active_game_pid > 0 {
+                let is_active_invalid = is_non_game_window_title(&self.active_game_name)
+                    || is_blacklisted_system_process(&self.active_game_exe.to_lowercase())
+                    || is_blacklisted_system_process(&self.active_game_name.to_lowercase());
+                if is_active_invalid {
+                    self.active_game_pid = 0;
+                    self.active_game_name.clear();
+                    self.active_game_exe.clear();
+                } else if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == self.active_game_pid) {
                     let pname_raw = p.name().to_string_lossy();
-                    if let Some(m) = detect_game_from_process(&pname_raw, p.exe(), &self.custom_games) {
-                        let pid = p.pid().as_u32();
-                        let mut score: u32 = match m.confidence {
-                            "custom" => 100,
-                            "known" => 95,
-                            "path" => 90,
-                            "engine" => 85,
-                            _ => 70,
-                        };
-                        if pid_fps_map.get(&pid).map_or(false, |f| f.fps >= 1.0) {
-                            score += 100;
-                        }
-                        if pid == fg_pid_now && pid > 0 {
-                            score += 25;
-                        }
-                        if pid == self.active_game_pid && pid > 0 {
-                            score += 15;
-                        }
-                        if score > best_score {
-                            best_score = score;
-                            detected_game_name = m.name;
-                            detected_game_exe = pname_raw.into_owned();
-                            detected_game_pid = pid;
-                            detected_game_cpu = p.cpu_usage();
-                            detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                            detected_game_run_secs = p.run_time();
-                            detected_game_start_ts = p.start_time();
-                        }
-                    }
-                }
-
-                // Step 2: 이전에 감지되어 활성화된 게임이 아직 살아있는지 확인 (알트탭 / 듀얼 모니터 다른 창 클릭 시 세션 고정)
-                if detected_game_name.is_empty() && self.active_game_pid > 0 {
-                    let is_active_invalid = is_non_game_window_title(&self.active_game_name)
-                        || is_blacklisted_system_process(&self.active_game_exe.to_lowercase())
-                        || is_blacklisted_system_process(&self.active_game_name.to_lowercase());
-                    if is_active_invalid {
-                        self.active_game_pid = 0;
-                        self.active_game_name.clear();
-                        self.active_game_exe.clear();
-                    } else if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == self.active_game_pid) {
-                        let pname_raw = p.name().to_string_lossy();
-                        let exe_lower = pname_raw.to_lowercase();
-                        if !is_blacklisted_system_process(&exe_lower) && !is_non_game_window_title(&self.active_game_name) {
-                            detected_game_name = self.active_game_name.clone();
-                            detected_game_exe = self.active_game_exe.clone();
-                            detected_game_pid = p.pid().as_u32();
-                            detected_game_cpu = p.cpu_usage();
-                            detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                            detected_game_run_secs = p.run_time();
-                            detected_game_start_ts = p.start_time();
-                        } else {
-                            self.active_game_pid = 0;
-                            self.active_game_name.clear();
-                            self.active_game_exe.clear();
-                        }
+                    let exe_lower = pname_raw.to_lowercase();
+                    if !is_blacklisted_system_process(&exe_lower) && !is_non_game_window_title(&self.active_game_name) {
+                        detected_game_name = self.active_game_name.clone();
+                        detected_game_exe = self.active_game_exe.clone();
+                        detected_game_pid = p.pid().as_u32();
+                        detected_game_cpu = p.cpu_usage();
+                        detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                        detected_game_run_secs = p.run_time();
+                        detected_game_start_ts = p.start_time();
                     } else {
                         self.active_game_pid = 0;
                         self.active_game_name.clear();
                         self.active_game_exe.clear();
                     }
-                }
-
-                // Step 3: 미등록 독립 실행형(Standalone) 게임 포그라운드 감지
-                // -> 일반 데스크톱 앱을 게임으로 오인하지 않도록 실제로 DXGI/D3D9 3D 프레임을 렌더링 중(>= 12 FPS)이고 메모리가 200MB를 넘는 경우에만 감지
-                if detected_game_name.is_empty() {
-                    if let Some((fg_pid, fg_title)) = fg_info {
-                        if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == fg_pid) {
-                            let pname_raw = p.name().to_string_lossy();
-                            let exe_lower = pname_raw.to_lowercase();
-                            let is_fg_non_game = is_non_game_window_title(&fg_title);
-                            let is_rendering_3d = pid_fps_map
-                                .get(&fg_pid)
-                                .map_or(false, |f| f.fps >= 12.0 && f.frame_count_1s >= 12);
-                            if !is_blacklisted_system_process(&exe_lower)
-                                && !is_fg_non_game
-                                && is_rendering_3d
-                                && p.memory() > 200 * 1024 * 1024
-                                && !fg_title.is_empty()
-                            {
-                                detected_game_name = fg_title;
-                                detected_game_exe = pname_raw.into_owned();
-                                detected_game_pid = p.pid().as_u32();
-                                detected_game_cpu = p.cpu_usage();
-                                detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
-                                detected_game_run_secs = p.run_time();
-                                detected_game_start_ts = p.start_time();
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 감지된 게임 프로세스의 실시간 하드웨어(DXGI/D3D9 ETW) FPS / 프레임타임 / 1% Low 산출
-            let mut detected_game_fps = 0.0f32;
-            let mut detected_game_frame_ms = 0.0f32;
-            let mut detected_game_low1_fps = 0.0f32;
-
-            if detected_game_pid > 0 {
-                if let Some(m) = pid_fps_map.get(&detected_game_pid) {
-                    detected_game_fps = m.fps;
-                    detected_game_frame_ms = m.frame_ms;
-                    detected_game_low1_fps = m.low_1pct_fps;
                 } else {
-                    // 부모 런처 프로세스가 잡힌 경우 동일 실행 파일명 또는 동일 게임명으로 매칭된 자식 렌더링 프로세스 탐색
-                    for p in &procs {
-                        let pid = p.pid().as_u32();
-                        if let Some(m) = pid_fps_map.get(&pid) {
-                            let pname = p.name().to_string_lossy();
-                            let same_exe = pname.eq_ignore_ascii_case(&detected_game_exe);
-                            let same_game = detect_game_from_process(&pname, p.exe(), &self.custom_games)
-                                .map_or(false, |gm| gm.name == detected_game_name);
-                            if same_exe || same_game {
-                                detected_game_fps = m.fps;
-                                detected_game_frame_ms = m.frame_ms;
-                                detected_game_low1_fps = m.low_1pct_fps;
-                                detected_game_pid = pid;
-                               break;
-                            }
+                    self.active_game_pid = 0;
+                    self.active_game_name.clear();
+                    self.active_game_exe.clear();
+                }
+            }
+
+            // Step 3: 미등록 독립 실행형(Standalone) 게임 포그라운드 감지
+            if detected_game_name.is_empty() {
+                if let Some((fg_pid, fg_title)) = fg_info {
+                    if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == fg_pid) {
+                        let pname_raw = p.name().to_string_lossy();
+                        let exe_lower = pname_raw.to_lowercase();
+                        let is_fg_non_game = is_non_game_window_title(&fg_title);
+                        let is_rendering_3d = pid_fps_map
+                            .get(&fg_pid)
+                            .map_or(false, |f| f.fps >= 12.0 && f.frame_count_1s >= 12);
+                        if !is_blacklisted_system_process(&exe_lower)
+                            && !is_fg_non_game
+                            && is_rendering_3d
+                            && p.memory() > 200 * 1024 * 1024
+                            && !fg_title.is_empty()
+                        {
+                            detected_game_name = fg_title;
+                            detected_game_exe = pname_raw.into_owned();
+                            detected_game_pid = p.pid().as_u32();
+                            detected_game_cpu = p.cpu_usage();
+                            detected_game_mem_mb = p.memory() as f64 / 1_048_576.0;
+                            detected_game_run_secs = p.run_time();
+                            detected_game_start_ts = p.start_time();
                         }
                     }
                 }
             }
+        }
 
-            // 활성 게임 PID 상태 캐시 (게임 전환 및 종료 감지용)
-            if !detected_game_name.is_empty() {
-                self.active_game_pid = detected_game_pid;
-                self.active_game_name = detected_game_name.clone();
-                self.active_game_exe = detected_game_exe.clone();
-                if let Ok(mut tgt) = self.active_game_target.lock() {
-                    *tgt = (detected_game_pid, detected_game_name.clone());
-                }
+        // 감지된 게임 프로세스의 실시간 하드웨어(DXGI/D3D9 ETW) FPS / 프레임타임 / 1% Low 산출
+        let mut detected_game_fps = 0.0f32;
+        let mut detected_game_frame_ms = 0.0f32;
+        let mut detected_game_low1_fps = 0.0f32;
+
+        if detected_game_pid > 0 {
+            if let Some(m) = pid_fps_map.get(&detected_game_pid) {
+                detected_game_fps = m.fps;
+                detected_game_frame_ms = m.frame_ms;
+                detected_game_low1_fps = m.low_1pct_fps;
             } else {
-                self.active_game_pid = 0;
-                self.active_game_name.clear();
-                self.active_game_exe.clear();
-                if let Ok(mut tgt) = self.active_game_target.lock() {
-                    *tgt = (0, String::new());
+                for p in &procs {
+                    let pid = p.pid().as_u32();
+                    if let Some(m) = pid_fps_map.get(&pid) {
+                        let pname = p.name().to_string_lossy();
+                        let same_exe = pname.eq_ignore_ascii_case(&detected_game_exe);
+                        let same_game = detect_game_from_process(&pname, p.exe(), &custom_games)
+                            .map_or(false, |gm| gm.name == detected_game_name);
+                        if same_exe || same_game {
+                            detected_game_fps = m.fps;
+                            detected_game_frame_ms = m.frame_ms;
+                            detected_game_low1_fps = m.low_1pct_fps;
+                            detected_game_pid = pid;
+                            break;
+                        }
+                    }
                 }
             }
+        }
 
-            let now = now_secs();
-            let mut active_session_id = String::new();
-            let mut active_duration_secs = 0u64;
-            let session_sample_fps = if detected_game_fps > 0.0 {
-                detected_game_fps
-            } else {
-                0.0
-            };
-            let session_sample_low1 = if detected_game_low1_fps > 0.0 {
-                detected_game_low1_fps
-            } else {
-                session_sample_fps
-            };
+        // 활성 게임 PID 상태 캐시 (게임 전환 및 종료 감지용)
+        if !detected_game_name.is_empty() {
+            self.active_game_pid = detected_game_pid;
+            self.active_game_name = detected_game_name.clone();
+            self.active_game_exe = detected_game_exe.clone();
+            if let Ok(mut tgt) = self.active_game_target.lock() {
+                *tgt = (detected_game_pid, detected_game_name.clone());
+            }
+        } else {
+            self.active_game_pid = 0;
+            self.active_game_name.clear();
+            self.active_game_exe.clear();
+            if let Ok(mut tgt) = self.active_game_target.lock() {
+                *tgt = (0, String::new());
+            }
+        }
 
+        let proc_snaps: Vec<ProcSnap> = procs
+            .iter()
+            .map(|p| ProcSnap {
+                pid: p.pid().as_u32(),
+                name: p.name().to_string_lossy().into_owned(),
+                exe_path: p.exe().map(|e| e.to_path_buf()),
+                cpu: p.cpu_usage(),
+                memory: p.memory(),
+            })
+            .collect();
+
+        let proc_json: Vec<String> = procs
+            .into_iter()
+            .take(100)
+            .map(|p| {
+                let name = json_escape(&p.name().to_string_lossy());
+                let mem_mb = p.memory() as f64 / 1_048_576.0;
+                let du = p.disk_usage();
+                let r_mbs = (du.read_bytes as f64 / dt_secs) / 1_048_576.0;
+                let w_mbs = (du.written_bytes as f64 / dt_secs) / 1_048_576.0;
+                format!(
+                    r#"{{"pid":{},"name":"{}","cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"disk_r_mb_s":{:.2},"disk_w_mb_s":{:.2}}}"#,
+                    p.pid().as_u32(),
+                    name,
+                    p.cpu_usage(),
+                    mem_mb,
+                    p.run_time(),
+                    r_mbs,
+                    w_mbs
+                )
+            })
+            .collect();
+
+        let now = now_secs();
+        let session_sample_fps = if detected_game_fps > 0.0 {
+            detected_game_fps
+        } else {
+            0.0
+        };
+        let session_sample_low1 = if detected_game_low1_fps > 0.0 {
+            detected_game_low1_fps
+        } else {
+            session_sample_fps
+        };
+
+        let mut active_session_id = String::new();
+        let mut active_duration_secs = 0u64;
+        let mut sessions_to_save: Option<Vec<GameSessionRecord>> = None;
+
+        // 게임 세션 업데이트 및 스냅샷 복사 (초단기 잠금)
+        let game_logs_json: Vec<String> = {
+            let mut guard = meta.lock().unwrap_or_else(|e| e.into_inner());
             if !detected_game_name.is_empty() {
                 let est_start = if detected_game_start_ts > 0 && detected_game_start_ts <= now {
                     detected_game_start_ts
@@ -3487,14 +3627,14 @@ impl SharedState {
                     .max(now.saturating_sub(est_start))
                     .max(1);
 
-                let found_idx = self.game_sessions.iter().rposition(|s| {
+                let found_idx = guard.game_sessions.iter().rposition(|s| {
                     s.game_name == detected_game_name
                         && ((s.pid == detected_game_pid && s.start_ts.abs_diff(est_start) <= 180)
                             || now.saturating_sub(s.end_ts) <= 30)
                 });
 
                 if let Some(idx) = found_idx {
-                    let s = &mut self.game_sessions[idx];
+                    let s = &mut guard.game_sessions[idx];
                     s.pid = detected_game_pid;
                     s.end_ts = now;
                     let since_start = now.saturating_sub(s.start_ts).max(1);
@@ -3521,7 +3661,7 @@ impl SharedState {
                     active_duration_secs = calc_run;
                     let init_fps = session_sample_fps;
                     let init_low1 = session_sample_low1;
-                    self.game_sessions.push(GameSessionRecord {
+                    guard.game_sessions.push(GameSessionRecord {
                         id,
                         game_name: detected_game_name.clone(),
                         exe_name: detected_game_exe.clone(),
@@ -3537,43 +3677,25 @@ impl SharedState {
                         max_gpu_usage: gpu_data.usage_pct,
                         fps_samples: if init_fps > 0.0 { 1 } else { 0 },
                     });
-                    save_game_sessions(&self.game_sessions);
+                    sessions_to_save = Some(guard.game_sessions.clone());
                     self.last_game_log_save = Instant::now();
                 }
 
                 if self.last_game_log_save.elapsed() >= Duration::from_secs(5) {
-                    save_game_sessions(&self.game_sessions);
+                    sessions_to_save = Some(guard.game_sessions.clone());
                     self.last_game_log_save = Instant::now();
                 }
                 self.was_game_active = true;
             } else if self.was_game_active {
-                save_game_sessions(&self.game_sessions);
+                sessions_to_save = Some(guard.game_sessions.clone());
                 self.was_game_active = false;
             }
 
-            let proc_json: Vec<String> = procs
-                .into_iter()
-                .take(100)
-                .map(|p| {
-                    let name = json_escape(&p.name().to_string_lossy());
-                    let mem_mb = p.memory() as f64 / 1_048_576.0;
-                    let du = p.disk_usage();
-                    let r_mbs = (du.read_bytes as f64 / dt_secs) / 1_048_576.0;
-                    let w_mbs = (du.written_bytes as f64 / dt_secs) / 1_048_576.0;
-                    format!(
-                        r#"{{"pid":{},"name":"{}","cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"disk_r_mb_s":{:.2},"disk_w_mb_s":{:.2}}}"#,
-                        p.pid().as_u32(),
-                        name,
-                        p.cpu_usage(),
-                        mem_mb,
-                        p.run_time(),
-                        r_mbs,
-                        w_mbs
-                    )
-                })
-                .collect();
+            guard.active_game_pid = self.active_game_pid;
+            guard.active_game_name = self.active_game_name.clone();
+            guard.active_game_exe = self.active_game_exe.clone();
 
-            let game_logs_json: Vec<String> = self
+            guard
                 .game_sessions
                 .iter()
                 .rev()
@@ -3598,79 +3720,92 @@ impl SharedState {
                         is_active
                     )
                 })
-                .collect();
+                .collect()
+        };
 
-            let cpu_temp_val = self.cpu_temp.lock().ok().and_then(|t| *t);
-            let cpu_temp_json = match cpu_temp_val {
-                Some(v) => format!("{:.1}", v),
-                None => "null".to_string(),
-            };
-            let gpu_temp_val = if gpu_data.temp_c > 0.0 {
-                gpu_data.temp_c
-            } else if let Some(ct) = cpu_temp_val {
-                ct
-            } else {
-                0.0
-            };
+        let cpu_temp_val = self.cpu_temp.lock().ok().and_then(|t| *t);
+        let cpu_temp_json = match cpu_temp_val {
+            Some(v) => format!("{:.1}", v),
+            None => "null".to_string(),
+        };
+        let gpu_temp_val = if gpu_data.temp_c > 0.0 {
+            gpu_data.temp_c
+        } else if let Some(ct) = cpu_temp_val {
+            ct
+        } else {
+            0.0
+        };
 
-            self.cached_json = format!(
-                r#"{{"cpu":{:.1},"cpu_temp_c":{},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
-                global_cpu,
-                cpu_temp_json,
-                cpus.join(","),
-                total_mem,
-                used_mem,
-                total_swap,
-                used_swap,
-                uptime,
-                cpu_brand,
-                os_name,
-                json_escape(&self.user_name),
-                self.startup_enabled,
-                theme_data.is_light,
-                theme_data.accent_hex,
-                theme_data.accent_rgb,
-                json_escape(&gpu_data.name),
-                gpu_data.usage_pct,
-                gpu_data.vram_used_mb,
-                gpu_data.vram_total_mb,
-                gpu_temp_val,
-                gpu_data.power_w,
-                gpu_data.clock_mhz,
-                net_rx_mb_s,
-                net_tx_mb_s,
-                net_rx_mbps,
-                net_tx_mbps,
-                net_rx_total_gb,
-                net_tx_total_gb,
-                json_escape(&active_iface),
-                ping_data.ping_ms,
-                ping_data.jitter_ms,
-                ping_data.online,
-                json_escape(&ping_data.target),
-                ping_data.is_game_ping,
-                json_escape(&ping_data.game_server_ip),
-                ping_data.game_server_port,
-                ifaces_json.join(","),
-                disk_read_mb_s,
-                disk_write_mb_s,
-                disks_json.join(","),
-                !detected_game_name.is_empty(),
-                json_escape(&detected_game_name),
-                json_escape(&detected_game_exe),
-                detected_game_pid,
-                detected_game_cpu,
-                detected_game_mem_mb,
-                active_duration_secs,
-                json_escape(&active_session_id),
-                detected_game_fps,
-                detected_game_frame_ms,
-                detected_game_low1_fps,
-                game_logs_json.join(","),
-                proc_json.join(",")
-            );
+        let new_json = format!(
+            r#"{{"cpu":{:.1},"cpu_temp_c":{},"cores":[{}],"total_mem":{},"used_mem":{},"total_swap":{},"used_swap":{},"uptime":{},"cpu_brand":"{}","os_name":"{}","user_name":"{}","startup_enabled":{},"theme":{{"is_light":{},"accent":"{}","accent_rgb":"{}"}},"gpu":{{"name":"{}","usage":{:.1},"vram_used_mb":{:.0},"vram_total_mb":{:.0},"temp_c":{:.1},"power_w":{:.1},"clock_mhz":{}}},"net":{{"rx_mb_s":{:.3},"tx_mb_s":{:.3},"rx_mbps":{:.2},"tx_mbps":{:.2},"rx_total_gb":{:.2},"tx_total_gb":{:.2},"iface":"{}","ping_ms":{:.1},"jitter_ms":{:.1},"online":{},"ping_target":"{}","is_game_ping":{},"game_server_ip":"{}","game_server_port":{},"interfaces":[{}]}},"disk_io":{{"read_mb_s":{:.2},"write_mb_s":{:.2}}},"disks":[{}],"game":{{"active":{},"name":"{}","exe":"{}","pid":{},"cpu":{:.1},"mem_mb":{:.1},"run_secs":{},"session_id":"{}","fps":{:.1},"frame_ms":{:.2},"low_1pct_fps":{:.1}}},"game_logs":[{}],"processes":[{}]}}"#,
+            global_cpu,
+            cpu_temp_json,
+            cpus.join(","),
+            total_mem,
+            used_mem,
+            total_swap,
+            used_swap,
+            uptime,
+            self.cpu_brand,
+            self.os_name,
+            json_escape(&self.user_name),
+            startup_enabled,
+            theme_data.is_light,
+            theme_data.accent_hex,
+            theme_data.accent_rgb,
+            json_escape(&gpu_data.name),
+            gpu_data.usage_pct,
+            gpu_data.vram_used_mb,
+            gpu_data.vram_total_mb,
+            gpu_temp_val,
+            gpu_data.power_w,
+            gpu_data.clock_mhz,
+            net_rx_mb_s,
+            net_tx_mb_s,
+            net_rx_mbps,
+            net_tx_mbps,
+            net_rx_total_gb,
+            net_tx_total_gb,
+            json_escape(&active_iface),
+            ping_data.ping_ms,
+            ping_data.jitter_ms,
+            ping_data.online,
+            json_escape(&ping_data.target),
+            ping_data.is_game_ping,
+            json_escape(&ping_data.game_server_ip),
+            ping_data.game_server_port,
+            ifaces_json.join(","),
+            disk_read_mb_s,
+            disk_write_mb_s,
+            disks_json.join(","),
+            !detected_game_name.is_empty(),
+            json_escape(&detected_game_name),
+            json_escape(&detected_game_exe),
+            detected_game_pid,
+            detected_game_cpu,
+            detected_game_mem_mb,
+            active_duration_secs,
+            json_escape(&active_session_id),
+            detected_game_fps,
+            detected_game_frame_ms,
+            detected_game_low1_fps,
+            game_logs_json.join(","),
+            proc_json.join(",")
+        );
+
+        {
+            let mut guard = meta.lock().unwrap_or_else(|e| e.into_inner());
+            guard.cached_json = new_json;
+            guard.proc_snaps = proc_snaps;
+            guard.force_refresh = false;
         }
-        &self.cached_json
+
+        // 디스크 파일 쓰기는 반드시 모든 뮤텍스 해제 후 수행
+        if let Some(sessions) = sessions_to_save {
+            REFRESH_STAGE.store(7, Ordering::SeqCst);
+            save_game_sessions(&sessions);
+        }
+        REFRESH_STAGE.store(0, Ordering::SeqCst);
     }
 }
 
@@ -4586,17 +4721,21 @@ fn control_app_window(
     true
 }
 
-fn kill_process_by_pid(state: &Arc<Mutex<SharedState>>, pid: u32) -> bool {
+fn kill_process_by_pid(state: &Arc<Mutex<SharedMeta>>, pid: u32) -> bool {
     // 시스템 핵심 프로세스(PID <= 4) 및 자기 자신 종료 방지
     if pid <= 4 || pid == std::process::id() {
         return false;
     }
-    let mut killed = false;
+    let target_pid = sysinfo::Pid::from_u32(pid);
+    let mut tmp_sys = System::new();
+    tmp_sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[target_pid]),
+        false,
+        sysinfo::ProcessRefreshKind::nothing(),
+    );
+    let killed = tmp_sys.process(target_pid).map_or(false, |p| p.kill());
     if let Ok(mut guard) = state.lock() {
-        if let Some(proc) = guard.sys.process(sysinfo::Pid::from_u32(pid)) {
-            killed = proc.kill();
-        }
-        guard.last_refresh = Instant::now() - Duration::from_secs(2);
+        guard.force_refresh = true;
     }
     killed
 }
@@ -4770,7 +4909,7 @@ fn verify_api_request(req_headers: &str, first_line: &str, expected_token: &str)
 
 fn handle_client(
     mut stream: TcpStream,
-    state: &Arc<Mutex<SharedState>>,
+    state: &Arc<Mutex<SharedMeta>>,
     last_heartbeat: &Arc<AtomicU64>,
     client_connected: &Arc<AtomicBool>,
     session_token: &str,
@@ -4821,10 +4960,10 @@ fn handle_client(
             if let Some(t) = target_param {
                 if !t.is_empty() && guard.target_proc != t {
                     guard.target_proc = t;
-                    guard.last_refresh = Instant::now() - Duration::from_secs(2);
+                    guard.force_refresh = true;
                 }
             }
-            guard.refresh_if_needed().to_string()
+            guard.cached_json.clone()
         };
         let resp = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -4836,14 +4975,19 @@ fn handle_client(
         let id_arg = parse_query_str(&first_line, "id")
             .map(|v| url_decode(&v))
             .unwrap_or_default();
-        if let Ok(mut guard) = state.lock() {
+        let sessions_to_save = if let Ok(mut guard) = state.lock() {
             if id_arg == "all" {
                 guard.game_sessions.clear();
             } else if !id_arg.is_empty() {
                 guard.game_sessions.retain(|s| s.id != id_arg);
             }
-            save_game_sessions(&guard.game_sessions);
-            guard.last_refresh = Instant::now() - Duration::from_secs(2);
+            guard.force_refresh = true;
+            Some(guard.game_sessions.clone())
+        } else {
+            None
+        };
+        if let Some(sessions) = sessions_to_save {
+            save_game_sessions(&sessions);
         }
         let body = r#"{"ok":true}"#;
         let resp = format!(
@@ -4978,7 +5122,7 @@ fn handle_client(
         let current = query_startup_enabled();
         if let Ok(mut guard) = state.lock() {
             guard.startup_enabled = current;
-            guard.last_refresh = Instant::now() - Duration::from_secs(2);
+            guard.force_refresh = true;
         }
         let body = format!(r#"{{"ok":{},"enabled":{}}}"#, ok, current);
         let resp = format!(
@@ -5049,9 +5193,18 @@ fn handle_client(
     } else if first_line.starts_with("GET /api/game_scan") {
         let (fg_pid, fg_title) = get_foreground_window_info().unwrap_or((0, String::new()));
         let pid_fps_map = query_all_active_pid_fps();
-        let resp_json = {
+        let (proc_snaps, custom_games, target_proc, active_game_name, active_game_exe, active_game_pid) = {
             let guard = state.lock().unwrap_or_else(|e| e.into_inner());
-            
+            (
+                guard.proc_snaps.clone(),
+                guard.custom_games.clone(),
+                guard.target_proc.clone(),
+                guard.active_game_name.clone(),
+                guard.active_game_exe.clone(),
+                guard.active_game_pid,
+            )
+        };
+        let resp_json = {
             struct Candidate {
                 pid: u32,
                 name: String,
@@ -5065,25 +5218,25 @@ fn handle_client(
             }
 
             let mut candidates = Vec::new();
-            for p in guard.sys.processes().values() {
-                let pname_raw = p.name().to_string_lossy();
+            for p in &proc_snaps {
+                let pname_raw = p.name.as_str();
                 let exe_lower = pname_raw.to_lowercase();
                 if is_blacklisted_system_process(&exe_lower) {
                     continue;
                 }
-                if let Some(pe) = p.exe() {
+                if let Some(pe) = p.exe_path.as_deref() {
                     if is_ignored_game_path(&pe.to_string_lossy()) {
                         continue;
                     }
                 }
 
-                let pid = p.pid().as_u32();
+                let pid = p.pid;
                 let is_fg = pid == fg_pid;
-                let cpu = p.cpu_usage();
-                let mem_mb = p.memory() as f64 / 1_048_576.0;
+                let cpu = p.cpu;
+                let mem_mb = p.memory as f64 / 1_048_576.0;
                 let live_fps = pid_fps_map.get(&pid).map(|m| m.fps).unwrap_or(0.0);
 
-                let m = detect_game_from_process(&pname_raw, p.exe(), &guard.custom_games);
+                let m = detect_game_from_process(pname_raw, p.exe_path.as_deref(), &custom_games);
                 if let Some(matched) = m {
                     let mut score = match matched.confidence {
                         "custom" => 100,
@@ -5100,7 +5253,7 @@ fn handle_client(
                     };
                     candidates.push(Candidate {
                         pid,
-                        name: pname_raw.into_owned(),
+                        name: pname_raw.to_string(),
                         title: matched.name,
                         cpu,
                         mem_mb,
@@ -5130,7 +5283,7 @@ fn handle_client(
                 } else if is_fg && !fg_title.is_empty() && !is_non_game_window_title(&fg_title) && (mem_mb > 150.0 || cpu > 0.5) {
                     candidates.push(Candidate {
                         pid,
-                        name: pname_raw.into_owned(),
+                        name: pname_raw.to_string(),
                         title: fg_title.clone(),
                         cpu,
                         mem_mb,
@@ -5171,16 +5324,16 @@ fn handle_client(
                 )
             }).collect();
 
-            let custom_list: Vec<String> = guard.custom_games.iter().map(|(k, v)| {
+            let custom_list: Vec<String> = custom_games.iter().map(|(k, v)| {
                 format!(r#"{{"exe":"{}","name":"{}"}}"#, json_escape(k), json_escape(v))
             }).collect();
 
             format!(
                 r#"{{"ok":true,"current_target":"{}","active_game":{{"name":"{}","exe":"{}","pid":{}}},"candidates":[{}],"custom_games":[{}]}}"#,
-                json_escape(&guard.target_proc),
-                json_escape(&guard.active_game_name),
-                json_escape(&guard.active_game_exe),
-                guard.active_game_pid,
+                json_escape(&target_proc),
+                json_escape(&active_game_name),
+                json_escape(&active_game_exe),
+                active_game_pid,
                 c_json.join(","),
                 custom_list.join(",")
             )
@@ -5194,15 +5347,20 @@ fn handle_client(
     } else if first_line.starts_with("POST /api/custom_game") {
         let exe = parse_query_str(&first_line, "exe").map(|v| url_decode(&v)).unwrap_or_default().to_lowercase();
         let name = parse_query_str(&first_line, "name").map(|v| url_decode(&v)).unwrap_or_default();
-        let ok = if !exe.is_empty() && !name.is_empty() && !is_blacklisted_system_process(&exe) && !is_non_game_window_title(&name) {
+        let to_save = if !exe.is_empty() && !name.is_empty() && !is_blacklisted_system_process(&exe) && !is_non_game_window_title(&name) {
             if let Ok(mut guard) = state.lock() {
                 guard.custom_games.insert(exe, name);
-                save_custom_games(&guard.custom_games);
-                guard.last_refresh = Instant::now() - Duration::from_secs(2);
-                true
+                guard.force_refresh = true;
+                Some(guard.custom_games.clone())
             } else {
-                false
+                None
             }
+        } else {
+            None
+        };
+        let ok = if let Some(map) = to_save {
+            save_custom_games(&map);
+            true
         } else {
             false
         };
@@ -5215,15 +5373,20 @@ fn handle_client(
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/delete_custom_game") {
         let exe = parse_query_str(&first_line, "exe").map(|v| url_decode(&v)).unwrap_or_default().to_lowercase();
-        let ok = if !exe.is_empty() {
+        let to_save = if !exe.is_empty() {
             if let Ok(mut guard) = state.lock() {
                 guard.custom_games.remove(&exe);
-                save_custom_games(&guard.custom_games);
-                guard.last_refresh = Instant::now() - Duration::from_secs(2);
-                true
+                guard.force_refresh = true;
+                Some(guard.custom_games.clone())
             } else {
-                false
+                None
             }
+        } else {
+            None
+        };
+        let ok = if let Some(map) = to_save {
+            save_custom_games(&map);
+            true
         } else {
             false
         };
@@ -5306,8 +5469,9 @@ fn handle_client(
         );
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/restart_app") {
-        if let Ok(guard) = state.lock() {
-            save_game_sessions(&guard.game_sessions);
+        let sessions_to_save = state.lock().ok().map(|g| g.game_sessions.clone());
+        if let Some(sessions) = sessions_to_save {
+            save_game_sessions(&sessions);
         }
         stop_fps_etw_session();
         let body = r#"{"ok":true}"#;
@@ -5344,8 +5508,9 @@ fn handle_client(
             let _ = stream.write_all(resp.as_bytes());
             return;
         }
-        if let Ok(guard) = state.lock() {
-            save_game_sessions(&guard.game_sessions);
+        let sessions_to_save = state.lock().ok().map(|g| g.game_sessions.clone());
+        if let Some(sessions) = sessions_to_save {
+            save_game_sessions(&sessions);
         }
         stop_fps_etw_session();
         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
@@ -5932,14 +6097,39 @@ fn run_worker(restarted: bool) {
     let disks_state = Arc::new(Mutex::new(Vec::<String>::new()));
     spawn_disk_monitor(Arc::clone(&disks_state));
 
-    let state = Arc::new(Mutex::new(SharedState::new(
+    let state = Arc::new(Mutex::new(SharedMeta::new()));
+    let mut collector = StatsCollector::new(
         Arc::clone(&gpu_state),
         Arc::clone(&cpu_temp_state),
         Arc::clone(&theme_state),
         Arc::clone(&ping_state),
         Arc::clone(&disks_state),
         Arc::clone(&active_game_target),
-    )));
+    );
+    // 서버 오픈 전에 초기 스냅샷을 1회 생성하여 첫 /api/stats 요청이 즉시 응답되도록 보장
+    collector.refresh_once(&state);
+    let last_refresh_ok = Arc::new(AtomicU64::new(now_secs()));
+
+    // 전용 백그라운드 메트릭 수집 스레드: HTTP 요청과 완전히 분리되어 캐시 JSON을 1초 주기로 갱신
+    {
+        let st_bg = Arc::clone(&state);
+        let refresh_ok_bg = Arc::clone(&last_refresh_ok);
+        thread::spawn(move || {
+            let mut last_tick = Instant::now();
+            loop {
+                thread::sleep(Duration::from_millis(100));
+                let forced = st_bg.lock().map(|g| g.force_refresh).unwrap_or(false);
+                if forced || last_tick.elapsed() >= Duration::from_millis(900) {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        collector.refresh_once(&st_bg);
+                    }));
+                    refresh_ok_bg.store(now_secs(), Ordering::SeqCst);
+                    last_tick = Instant::now();
+                }
+            }
+        });
+    }
+
     let last_heartbeat = Arc::new(AtomicU64::new(now_secs()));
     let client_connected = Arc::new(AtomicBool::new(false));
 
@@ -5999,8 +6189,9 @@ fn run_worker(restarted: bool) {
                     };
                     let hb_stale = now_secs().saturating_sub(last_hb.load(Ordering::SeqCst)) > 8;
                     if since.elapsed() > limit && hb_stale && started.elapsed() > Duration::from_secs(10) {
-                        if let Ok(guard) = st.try_lock() {
-                            save_game_sessions(&guard.game_sessions);
+                        let sessions_to_save = st.try_lock().ok().map(|g| g.game_sessions.clone());
+                        if let Some(sessions) = sessions_to_save {
+                            save_game_sessions(&sessions);
                         }
                         stop_fps_etw_session();
                         std::process::exit(0);
@@ -6010,9 +6201,12 @@ fn run_worker(restarted: bool) {
         });
     }
 
-    // [감시 2] 백엔드 교착(Deadlock) 감시: 상태 잠금이 45초 이상 풀리지 않으면 워커를 재시작
+    // [감시 2] 백엔드 교착(Deadlock) 감시:
+    // - 초경량 메타데이터 잠금이 45초 이상 풀리지 않거나
+    // - 전용 수집 스레드가 90초 이상 응답하지 않으면 정확한 단계(stage)를 기록하고 워커를 자동 재시작
     {
         let st = Arc::clone(&state);
+        let refresh_ok = Arc::clone(&last_refresh_ok);
         thread::spawn(move || {
             let mut stuck_since: Option<Instant> = None;
             loop {
@@ -6022,10 +6216,21 @@ fn run_worker(restarted: bool) {
                     Err(std::sync::TryLockError::WouldBlock) => {
                         let since = *stuck_since.get_or_insert_with(Instant::now);
                         if since.elapsed() > Duration::from_secs(45) {
-                            append_watchdog_log("백엔드 교착 상태 감지 (45초 초과) → 워커 자동 재시작");
+                            let stage = refresh_stage_name(REFRESH_STAGE.load(Ordering::SeqCst));
+                            append_watchdog_log(&format!(
+                                "백엔드 메타 잠금 교착 감지 (45초 초과, stage={stage}) → 워커 자동 재시작"
+                            ));
                             std::process::exit(3);
                         }
                     }
+                }
+                let stale_refresh = now_secs().saturating_sub(refresh_ok.load(Ordering::SeqCst));
+                if stale_refresh > 90 {
+                    let stage = refresh_stage_name(REFRESH_STAGE.load(Ordering::SeqCst));
+                    append_watchdog_log(&format!(
+                        "백엔드 수집 스레드 응답 없음 ({stale_refresh}초 초과, stage={stage}) → 워커 자동 재시작"
+                    ));
+                    std::process::exit(3);
                 }
             }
         });
@@ -6034,16 +6239,24 @@ fn run_worker(restarted: bool) {
     launch_desktop_window(&url);
     spawn_window_icon_applier();
 
+    let active_http_workers = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming().flatten() {
+        if active_http_workers.load(Ordering::SeqCst) >= 64 {
+            drop(stream);
+            continue;
+        }
         let state_clone = Arc::clone(&state);
         let hb_clone = Arc::clone(&last_heartbeat);
         let conn_clone = Arc::clone(&client_connected);
         let tok_clone = Arc::clone(&session_token);
+        let workers_clone = Arc::clone(&active_http_workers);
+        workers_clone.fetch_add(1, Ordering::SeqCst);
         thread::spawn(move || {
             // 요청 처리 중 패닉이 나도 서버 전체가 멈추지 않도록 격리
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 handle_client(stream, &state_clone, &hb_clone, &conn_clone, &tok_clone);
             }));
+            workers_clone.fetch_sub(1, Ordering::SeqCst);
         });
     }
 }
