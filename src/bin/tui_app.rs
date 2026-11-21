@@ -6271,47 +6271,67 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=3">
 <style>
   :root {
-    --brand: #0078d4;
-    --brand-rgb: 0, 120, 212;
-    --green: #23a55a;
-    --neon-green: #00c875;
-    --yellow: #d99b00;
-    --red: #e53935;
-    --cyan: #0099cc;
-    --purple: #8e44ad;
-    --orange: #e66700;
+    --brand: #3b82f6;
+    --brand-rgb: 59, 130, 246;
+    --green: #4cc38a;
+    --neon-green: #4cc38a;
+    --yellow: #d4a72c;
+    --red: #e5484d;
+    --cyan: #4ea8de;
+    --purple: #9b8afb;
+    --orange: #d9822b;
 
-    /* 기본 다크 테마 변수 */
-    --bg-tertiary: #1e1f22;
-    --bg-secondary: #2b2d31;
-    --bg-primary: #313338;
-    --bg-card: #232428;
-    --bg-hover: #35373c;
-    --bg-active: #404249;
-    --text-normal: #f2f3f5;
-    --text-muted: #949ba4;
-    --border-subtle: rgba(255, 255, 255, 0.07);
-    --header-border: rgba(0, 0, 0, 0.28);
-    --card-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-    --grid-line: rgba(255, 255, 255, 0.06);
+    /* Graphite 다크 램프 (정밀 계측기 무광 중립 표면) */
+    --bg-tertiary: #0f0f10;
+    --bg-secondary: #141415;
+    --bg-primary: #141415;
+    --bg-card: #19191b;
+    --bg-elevated: #232325;
+    --bg-hover: #232325;
+    --bg-active: #2b2b2e;
+    --text-normal: #ededed;
+    --text-secondary: #a1a1a6;
+    --text-muted: #85858b;
+    --text-header: #ededed;
+    --border-subtle: rgba(237, 237, 237, 0.08);
+    --border: rgba(237, 237, 237, 0.08);
+    --header-border: rgba(237, 237, 237, 0.08);
+    --card-shadow: none;
+    --popover-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    --grid-line: rgba(237, 237, 237, 0.06);
+    --top-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
   }
 
-  /* Windows 라이트 테마 동기화 클래스 */
+  /* Graphite 라이트 램프 */
   body.theme-light {
-    --bg-tertiary: #e3e5e8;
-    --bg-secondary: #f2f3f5;
-    --bg-primary: #ffffff;
-    --bg-card: #ebedef;
-    --bg-hover: #dfe1e5;
-    --bg-active: #d4d7dc;
-    --text-normal: #060607;
-    --text-muted: #4e5058;
-    --border-subtle: rgba(0, 0, 0, 0.08);
-    --header-border: rgba(0, 0, 0, 0.08);
-    --card-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-    --grid-line: rgba(0, 0, 0, 0.06);
-    --neon-green: #158f48;
-    --cyan: #0078d4;
+    --bg-tertiary: #f0f0f2;
+    --bg-secondary: #fafafa;
+    --bg-primary: #fafafa;
+    --bg-card: #ffffff;
+    --bg-elevated: #f4f4f5;
+    --bg-hover: #f4f4f5;
+    --bg-active: #e4e4e7;
+    --text-normal: #171717;
+    --text-secondary: #525252;
+    --text-muted: #737373;
+    --text-header: #171717;
+    --border-subtle: rgba(23, 23, 23, 0.08);
+    --border: rgba(23, 23, 23, 0.08);
+    --header-border: rgba(23, 23, 23, 0.08);
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --popover-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --grid-line: rgba(23, 23, 23, 0.06);
+    --top-highlight: none;
+    --green: #16a34a;
+    --neon-green: #16a34a;
+    --red: #dc2626;
+    --yellow: #b45309;
+    --orange: #c2410c;
+    --cyan: #0284c7;
+    --purple: #6d28d9;
   }
 
   * {
@@ -6321,133 +6341,202 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     user-select: none;
   }
 
+  *:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
   body {
-    font-family: 'Pretendard', 'Malgun Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
     background-color: var(--bg-primary);
     color: var(--text-normal);
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     display: flex;
-    transition: background-color 0.25s ease, color 0.25s ease;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 180ms var(--ease), color 180ms var(--ease);
   }
 
-  /* 1. 디스코드 좌측 서버 아이콘 레일 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(133, 133, 139, 0.28);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(133, 133, 139, 0.45);
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.2;
+  }
+
+  .ico {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-block;
+    vertical-align: middle;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* 1. 좌측 아이콘 레일 (64px, 4px 그리드) */
   .server-rail {
-    width: 72px;
+    width: 64px;
     background-color: var(--bg-tertiary);
+    border-right: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 12px 0;
     gap: 8px;
     flex-shrink: 0;
-    transition: background-color 0.25s ease;
+    transition: background-color 180ms var(--ease);
   }
 
   .server-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background-color: var(--bg-primary);
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background-color: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: background-color 150ms var(--ease), color 150ms var(--ease), transform 120ms var(--ease);
     position: relative;
-    color: var(--text-normal);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    color: var(--text-muted);
+  }
+
+  .server-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
   }
 
   .server-icon::before {
     content: '';
     position: absolute;
     left: -12px;
-    width: 4px;
+    width: 3px;
     height: 0;
-    border-radius: 0 4px 4px 0;
+    border-radius: 0 2px 2px 0;
     background-color: var(--brand);
-    transition: height 0.2s ease;
+    opacity: 0;
+    transition: opacity 150ms var(--ease), transform 150ms var(--ease);
   }
 
   .server-icon:hover {
-    border-radius: 16px;
-    background-color: var(--brand);
-    color: #fff;
+    background-color: var(--bg-hover);
+    color: var(--text-normal);
   }
 
-  .server-icon:hover::before {
-    height: 20px;
+  .server-icon:active {
+    transform: scale(0.97);
   }
 
   .server-icon.active {
-    border-radius: 16px;
-    background-color: var(--brand);
-    color: #fff;
+    background-color: var(--bg-elevated);
+    color: var(--text-normal);
+    box-shadow: var(--top-highlight);
+    border: 1px solid var(--border-subtle);
   }
 
   .server-icon.active::before {
-    height: 40px;
+    height: 20px;
+    opacity: 1;
   }
 
   .rail-divider {
-    width: 32px;
-    height: 2px;
+    width: 24px;
+    height: 1px;
     background-color: var(--border-subtle);
     margin: 4px 0;
   }
 
-  /* 2. 채널 사이드바 */
+  /* 2. 내비게이션 사이드바 (248px) */
   .channel-sidebar {
-    width: 245px;
-    background-color: var(--bg-secondary);
+    width: 248px;
+    background-color: var(--bg-tertiary);
+    border-right: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    transition: background-color 0.25s ease;
+    transition: background-color 180ms var(--ease);
   }
 
   .server-header {
-    height: 48px;
+    height: 56px;
     padding: 0 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-weight: 700;
-    font-size: 15px;
+    font-weight: 600;
+    font-size: 16px;
     border-bottom: 1px solid var(--header-border);
-    letter-spacing: 0.3px;
   }
 
   .channel-list {
     flex: 1;
-    padding: 12px 8px;
+    padding: 12px;
     overflow-y: auto;
   }
 
   .category-label {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
-    padding: 8px 8px 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
+    padding: 20px 8px 8px;
+    line-height: 16px;
+  }
+
+  .category-label:first-child {
+    padding-top: 4px;
   }
 
   .channel-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    color: var(--text-muted);
+    gap: 10px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    color: var(--text-secondary);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 400;
     cursor: pointer;
     margin-bottom: 2px;
-    transition: background 0.12s, color 0.12s;
+    border: 1px solid transparent;
+    transition: background-color 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease);
+  }
+
+  .channel-item svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.5;
+    color: var(--text-muted);
+    flex-shrink: 0;
   }
 
   .channel-item:hover {
@@ -6455,96 +6544,105 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     color: var(--text-normal);
   }
 
-  .channel-item.active {
-    background-color: rgba(var(--brand-rgb), 0.16);
-    color: var(--brand);
-    font-weight: 700;
+  .channel-item:hover svg {
+    color: var(--text-normal);
   }
 
-  .channel-hash {
-    font-size: 18px;
-    color: inherit;
-    opacity: 0.75;
-    font-weight: 400;
+  .channel-item.active {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-subtle);
+    box-shadow: var(--top-highlight);
+    color: var(--text-normal);
+    font-weight: 500;
+  }
+
+  .channel-item.active svg {
+    color: var(--brand);
   }
 
   .voice-status-box {
-    margin: 8px;
-    padding: 10px 12px;
+    margin: 4px 0 8px;
+    padding: 12px;
     border-radius: 8px;
-    background-color: rgba(35, 165, 90, 0.1);
-    border: 1px solid rgba(35, 165, 90, 0.25);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
   }
 
   .voice-status-title {
     font-size: 12px;
-    font-weight: 700;
-    color: var(--green);
+    font-weight: 500;
+    color: var(--text-normal);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
+  /* 시그니처: 글로우·펄스 없는 정밀 단일 라이브 상태 도트 */
   .pulse-dot {
     width: 8px;
     height: 8px;
     background-color: var(--green);
     border-radius: 50%;
-    box-shadow: 0 0 8px var(--green);
-    animation: pulse 1.5s infinite;
-  }
-
-  @keyframes pulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(1.2); }
-    100% { opacity: 1; transform: scale(1); }
+    flex-shrink: 0;
   }
 
   .voice-status-sub {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 게임 모니터 상태 카드 */
+  .playing-box {
+    margin: 8px 0;
+    padding: 12px;
+    border-radius: 8px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
+  }
+
+  .playing-box:hover {
+    border-color: rgba(var(--brand-rgb), 0.45);
+    background-color: var(--bg-hover);
+  }
+
+  .playing-header {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .playing-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-normal);
     margin-top: 4px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  /* 디스코드 스타일 활동 중(Playing a Game) 배너 */
-  .playing-box {
-    margin: 8px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background-color: rgba(var(--brand-rgb), 0.1);
-    border: 1px solid rgba(var(--brand-rgb), 0.3);
-  }
-
-  .playing-header {
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    color: var(--brand);
-    letter-spacing: 0.6px;
-  }
-
-  .playing-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-normal);
-    margin-top: 3px;
-  }
-
   .playing-fps {
     font-size: 12px;
-    color: var(--neon-green);
-    font-weight: 700;
-    margin-top: 2px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
   }
 
   /* 하단 유저 프로필 패널 */
   .user-panel {
-    height: 54px;
+    height: 56px;
     background-color: var(--bg-card);
-    padding: 0 10px;
+    padding: 0 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -6558,16 +6656,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .avatar {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    background: var(--brand);
-    color: #fff;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-normal);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 800;
-    font-size: 15px;
+    font-weight: 500;
+    font-size: 13px;
     position: relative;
     cursor: pointer;
     flex-shrink: 0;
@@ -6582,8 +6681,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .startup-box {
-    margin: 8px;
-    padding: 9px 12px;
+    margin: 8px 0 4px;
+    padding: 10px 12px;
     border-radius: 8px;
     background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
@@ -6591,44 +6690,47 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     justify-content: space-between;
     cursor: pointer;
-    transition: border-color 0.15s, background-color 0.15s;
+    transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
   }
 
   .startup-box:hover {
-    border-color: var(--brand);
+    border-color: rgba(var(--brand-rgb), 0.45);
     background-color: var(--bg-hover);
   }
 
   .startup-label {
     font-size: 12px;
-    font-weight: 700;
-    color: var(--text-normal);
+    font-weight: 500;
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
   .switch-pill {
-    font-size: 10.5px;
-    font-weight: 800;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
     padding: 2px 8px;
-    border-radius: 999px;
-    background-color: var(--bg-active);
+    border-radius: 4px;
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     color: var(--text-muted);
-    transition: all 0.15s;
+    transition: background-color 150ms var(--ease), color 150ms var(--ease), border-color 150ms var(--ease);
   }
 
   .switch-pill.on {
-    background-color: var(--green);
-    color: #fff;
+    background-color: rgba(76, 195, 138, 0.16);
+    border-color: rgba(76, 195, 138, 0.35);
+    color: var(--green);
   }
 
   .avatar-status {
     position: absolute;
     bottom: -1px;
     right: -1px;
-    width: 11px;
-    height: 11px;
+    width: 10px;
+    height: 10px;
     background-color: var(--green);
     border: 2px solid var(--bg-card);
     border-radius: 50%;
@@ -6636,13 +6738,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   .user-name {
     font-size: 13px;
-    font-weight: 700;
-    line-height: 1.2;
+    font-weight: 500;
+    line-height: 1.3;
   }
 
   .user-tag {
     font-size: 11px;
     color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 
   .icon-btn {
@@ -6651,12 +6755,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     color: var(--text-muted);
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 15px;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 140ms var(--ease), color 140ms var(--ease);
   }
 
   .icon-btn:hover {
@@ -6665,7 +6769,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .icon-btn.danger:hover {
-    background-color: rgba(229, 57, 53, 0.2);
+    background-color: rgba(229, 72, 77, 0.16);
     color: var(--red);
   }
 
@@ -6677,12 +6781,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     flex-direction: column;
     background-color: var(--bg-primary);
     overflow: hidden;
-    transition: background-color 0.25s ease;
+    transition: background-color 180ms var(--ease);
   }
 
   .top-bar {
-    height: 48px;
-    padding: 0 18px;
+    height: 56px;
+    padding: 0 24px;
     border-bottom: 1px solid var(--header-border);
     display: flex;
     align-items: center;
@@ -6694,23 +6798,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .top-bar-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     min-width: 0;
     flex: 1;
     overflow: hidden;
   }
 
   .top-bar-title {
-    font-weight: 700;
-    font-size: 15.5px;
+    font-weight: 500;
+    font-size: 16px;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .top-bar-desc {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--text-muted);
-    padding-left: 10px;
+    padding-left: 12px;
     border-left: 1px solid var(--border-subtle);
     white-space: nowrap;
     overflow: hidden;
@@ -6721,7 +6825,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .top-bar-right {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     flex-shrink: 0;
   }
 
@@ -6735,23 +6839,24 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .top-tools-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px !important;
-    font-size: 12.5px !important;
-    font-weight: 700 !important;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
     border-radius: 8px !important;
     border: 1px solid var(--border-subtle) !important;
     background-color: var(--bg-card) !important;
     color: var(--text-normal) !important;
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.15s ease;
+    transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
   }
 
   .top-tools-toggle:hover,
   .top-tools-toggle.open {
-    border-color: var(--brand) !important;
-    background-color: rgba(var(--brand-rgb), 0.14) !important;
+    border-color: rgba(var(--brand-rgb), 0.5) !important;
+    background-color: var(--bg-elevated) !important;
   }
 
   .top-tools-popover {
@@ -6759,41 +6864,43 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     top: calc(100% + 8px);
     right: 0;
     z-index: 350;
-    width: min(348px, calc(100vw - 24px));
-    background-color: var(--bg-secondary);
+    width: min(352px, calc(100vw - 24px));
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
     padding: 12px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--popover-shadow);
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    animation: fadeIn 0.14s ease;
+    gap: 12px;
+    animation: fadeIn 180ms var(--ease);
   }
 
   .top-tools-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11.5px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
-    padding-bottom: 6px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border-subtle);
   }
 
   .top-tools-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
+    gap: 8px;
   }
 
   .top-tools-grid .btn,
   .top-tools-grid .rec-btn {
     width: 100%;
-    justify-content: center;
-    padding: 7px 8px;
-    font-size: 12px;
+    height: 36px;
+    justify-content: flex-start;
+    padding: 0 12px;
+    gap: 8px;
+    font-size: 13px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6803,7 +6910,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
     padding-top: 8px;
     border-top: 1px solid var(--border-subtle);
   }
@@ -6814,23 +6921,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .badge {
-    font-size: 10.5px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    background-color: var(--bg-card);
-    color: var(--text-muted);
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: var(--bg-elevated);
+    color: var(--text-secondary);
+    font-weight: 400;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     border: 1px solid var(--border-subtle);
     white-space: nowrap;
     flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
   }
 
   .accent-dot {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background-color: var(--brand);
     display: inline-block;
@@ -6840,19 +6949,19 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     flex: 1;
     min-width: 0;
     min-height: 0;
-    padding: 16px 18px;
+    padding: 20px 24px;
     overflow-y: auto;
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
   }
 
   /* 대시보드 그리드 & 카드 */
   .grid-4 {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    gap: 16px;
     flex-shrink: 0;
     width: 100%;
     min-width: 0;
@@ -6862,7 +6971,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
-    gap: 12px;
+    gap: 16px;
     flex: 1 1 0;
     min-height: 320px;
     width: 100%;
@@ -6870,36 +6979,34 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .card {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
-    padding: 13px 14px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 12px;
     min-width: 0;
     overflow: hidden;
     box-shadow: var(--card-shadow);
-    transition: background-color 0.25s ease, border-color 0.25s ease;
+    transition: background-color 160ms var(--ease), border-color 160ms var(--ease);
   }
 
-  .card-header {
+  .card-header, .card-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
+    gap: 8px;
     min-width: 0;
   }
 
   .card-title {
-    font-size: clamp(11px, 0.95vw, 12.5px);
-    font-weight: 700;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.2px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6909,12 +7016,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .zoom-card {
     cursor: pointer;
     position: relative;
-    transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 150ms var(--ease), background-color 150ms var(--ease);
   }
 
   .zoom-card:hover {
-    border-color: var(--brand);
-    transform: translateY(-2px);
+    border-color: rgba(var(--brand-rgb), 0.5);
   }
 
   /* 더블클릭 전체 화면 상세 모니터링 뷰 */
@@ -6926,17 +7032,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    animation: fadeIn 0.18s ease;
+    animation: fadeIn 180ms var(--ease);
   }
 
   @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.985); }
-    to { opacity: 1; transform: scale(1); }
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .detail-header {
-    height: 58px;
-    background-color: var(--bg-secondary);
+    height: 60px;
+    background-color: var(--bg-tertiary);
     border-bottom: 1px solid var(--header-border);
     padding: 0 24px;
     display: flex;
@@ -6946,7 +7052,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     flex-shrink: 0;
   }
 
-  .detail-title-wrap {
+  .detail-title-wrap, .detail-title-group {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -6955,25 +7061,41 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     overflow: hidden;
   }
 
+  .detail-title-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .detail-title {
-    font-size: 17px;
-    font-weight: 800;
+    font-size: 16px;
+    font-weight: 600;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .detail-sub {
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text-muted);
-    padding-left: 12px;
-    border-left: 1px solid var(--border-subtle);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
   }
 
-  .detail-body {
+  .detail-title-wrap .detail-sub {
+    padding-left: 12px;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .detail-body, .detail-content {
     flex: 1;
     padding: 20px 24px;
     overflow-y: auto;
@@ -6991,86 +7113,95 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .kpi-box {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    padding: 14px 16px;
+    border-radius: 12px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
 
   .kpi-label {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
-    text-transform: uppercase;
   }
 
   .kpi-val {
     font-size: 24px;
-    font-weight: 800;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
+    line-height: 1.1;
   }
 
   .detail-chart-wrap {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
-    padding: 18px 20px;
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
   }
 
+  .detail-chart-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
   .detail-canvas {
     width: 100%;
-    height: 270px;
-    background-color: var(--bg-card);
-    border-radius: 10px;
+    height: 280px;
+    background-color: var(--bg-tertiary);
+    border-radius: 8px;
     border: 1px solid var(--border-subtle);
     display: block;
   }
 
   /* 녹화 버튼 및 분석 리포트 스타일 */
   .rec-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 12px;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
     border-radius: 8px;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    border: 1px solid rgba(229, 57, 53, 0.45);
-    background-color: rgba(229, 57, 53, 0.12);
+    border: 1px solid rgba(229, 72, 77, 0.35);
+    background-color: rgba(229, 72, 77, 0.1);
     color: var(--text-normal);
-    transition: all 0.15s ease;
+    transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
     white-space: nowrap;
   }
 
   .rec-btn:hover {
-    background-color: rgba(229, 57, 53, 0.24);
+    background-color: rgba(229, 72, 77, 0.18);
+    border-color: rgba(229, 72, 77, 0.55);
   }
 
   .rec-btn.recording {
     background-color: var(--red);
     color: #fff;
     border-color: var(--red);
-    box-shadow: 0 0 12px rgba(229, 57, 53, 0.45);
   }
 
   .rec-dot {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background-color: var(--red);
     display: inline-block;
+    flex-shrink: 0;
   }
 
   .rec-btn.recording .rec-dot {
     background-color: #fff;
-    animation: pulse 0.9s infinite;
   }
 
   .insight-grid {
@@ -7080,26 +7211,26 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .insight-card {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
-    border-left: 4px solid var(--brand);
+    border-left: 3px solid var(--brand);
     border-radius: 10px;
-    padding: 13px 15px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
 
   .insight-title {
-    font-size: 12px;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 600;
     color: var(--text-header);
   }
 
   .insight-body {
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--text-normal);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
   }
 
   .series-toggles {
@@ -7114,38 +7245,40 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 700;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     border: 1px solid var(--border-subtle);
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     color: var(--text-muted);
-    transition: all 0.12s;
+    transition: background-color 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease);
   }
 
   .series-pill.active {
     color: var(--text-normal);
-    border-color: var(--brand);
-    background-color: rgba(var(--brand-rgb), 0.14);
+    border-color: rgba(var(--brand-rgb), 0.45);
+    background-color: rgba(var(--brand-rgb), 0.12);
   }
 
   .scrub-inspector {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 14px;
+    padding: 10px 16px;
     border-radius: 8px;
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     font-size: 12px;
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
   }
 
   .metric-big {
-    font-size: clamp(18px, 1.7vw, 25px);
-    font-weight: 800;
-    letter-spacing: -0.5px;
+    font-size: clamp(22px, 1.9vw, 28px);
+    font-weight: 500;
+    line-height: 1.1;
+    color: var(--text-normal);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
@@ -7154,7 +7287,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .metric-sub {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -7170,11 +7303,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .stat-pill {
+    font-family: var(--font-mono);
     font-size: 11px;
-    background-color: var(--bg-card);
-    padding: 3px 8px;
+    background-color: var(--bg-elevated);
+    padding: 2px 8px;
     border-radius: 6px;
-    color: var(--text-normal);
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
     border: 1px solid var(--border-subtle);
     white-space: nowrap;
@@ -7183,22 +7317,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   /* 프로그레스 바 */
   .progress-track {
     width: 100%;
-    height: 8px;
-    background-color: var(--bg-tertiary);
-    border-radius: 999px;
+    height: 6px;
+    background-color: var(--bg-elevated);
+    border-radius: 4px;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    border-radius: 999px;
-    transition: width 0.35s ease;
+    border-radius: 4px;
+    transition: width 280ms var(--ease);
   }
 
   .chart-canvas {
     width: 100%;
     height: 80px;
-    background-color: var(--bg-card);
+    background-color: var(--bg-tertiary);
     border-radius: 8px;
     display: block;
     border: 1px solid var(--border-subtle);
@@ -7235,10 +7369,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .num-cell {
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
-    padding: 5px 8px;
+    border-radius: 8px;
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -7250,19 +7384,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .num-lbl {
-    font-size: 10px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 500;
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .num-val {
-    font-size: 12.5px;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     color: var(--text-normal);
     white-space: nowrap;
@@ -7271,7 +7403,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .num-sub {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -7281,19 +7413,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   .core-mini-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
-    gap: 3px;
-    max-height: 58px;
+    grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+    gap: 4px;
+    max-height: 60px;
     overflow-y: auto;
     padding-right: 2px;
   }
 
   .core-mini-chip {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 4px;
     padding: 2px 4px;
-    font-size: 9.5px;
+    font-family: var(--font-mono);
+    font-size: 10px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -7301,8 +7434,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .core-mini-chip.high {
-    border-color: rgba(229, 57, 53, 0.5);
-    background-color: rgba(229, 57, 53, 0.15);
+    border-color: rgba(229, 72, 77, 0.45);
+    background-color: rgba(229, 72, 77, 0.14);
     color: var(--red);
   }
 
@@ -7310,7 +7443,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .detail-grid-panel {
     display: none;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
     flex: 1 1 auto;
     min-height: 0;
   }
@@ -7326,7 +7459,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .detail-grid-row {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr);
-    gap: 14px;
+    gap: 16px;
     flex: 1 1 0;
     min-height: 0;
     width: 100%;
@@ -7348,9 +7481,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    border-radius: 6px;
+    border-radius: 8px;
     border: 1px solid var(--border-subtle);
-    background-color: var(--bg-card);
+    background-color: var(--bg-tertiary);
   }
 
   .detail-num-table {
@@ -7362,19 +7495,18 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .detail-num-table th {
     position: sticky;
     top: 0;
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-elevated);
     color: var(--text-muted);
     padding: 8px 12px;
-    font-size: 11.5px;
-    font-weight: 700;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 500;
     text-align: left;
     border-bottom: 1px solid var(--border-subtle);
     z-index: 2;
   }
 
   .detail-num-table td {
-    padding: 7px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border-subtle);
     font-variant-numeric: tabular-nums;
   }
@@ -7390,10 +7522,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .detail-subgrid-card {
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 8px 12px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -7404,7 +7536,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .proc-name-cell {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     min-width: 0;
     max-width: 100%;
   }
@@ -7414,23 +7546,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     height: 16px;
     object-fit: contain;
     flex-shrink: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     vertical-align: middle;
   }
 
-  .search-input, .select-input {
-    background-color: var(--bg-primary);
+  .search-input, .select-input, .proc-select {
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     color: var(--text-normal);
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-size: 12px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 13px;
     outline: none;
     white-space: nowrap;
     flex-shrink: 0;
+    transition: border-color 140ms var(--ease);
   }
 
-  .search-input:focus, .select-input:focus {
+  .search-input:focus, .select-input:focus, .proc-select:focus {
     border-color: var(--brand);
   }
 
@@ -7439,7 +7573,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     min-height: 120px;
     overflow-y: auto;
     border-radius: 8px;
-    background-color: var(--bg-card);
+    background-color: var(--bg-tertiary);
     border: 1px solid var(--border-subtle);
   }
 
@@ -7452,30 +7586,32 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   th {
     position: sticky;
     top: 0;
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-elevated);
     color: var(--text-muted);
     text-align: left;
     padding: 8px 12px;
-    font-size: 11px;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    transition: color 0.15s, background-color 0.15s;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: color 140ms var(--ease), background-color 140ms var(--ease);
     white-space: nowrap;
   }
 
   th:hover {
     color: var(--text-normal);
-    background-color: var(--bg-hover);
+    background-color: var(--bg-active);
   }
 
   th.active-sort {
-    color: var(--brand);
-    font-weight: 800;
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
   td {
-    padding: 7px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
   }
 
   tbody tr {
@@ -7490,12 +7626,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .ctx-menu {
     position: fixed;
     z-index: 9999;
-    min-width: 210px;
-    background-color: var(--bg-tertiary);
+    min-width: 220px;
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--popover-shadow);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -7503,8 +7639,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   .ctx-header {
     padding: 6px 10px;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-mono);
     color: var(--text-muted);
     border-bottom: 1px solid var(--border-subtle);
     margin-bottom: 4px;
@@ -7517,9 +7654,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .ctx-item {
     padding: 8px 10px;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 400;
     color: var(--text-normal);
-    border-radius: 5px;
+    border-radius: 6px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -7528,11 +7665,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     border: none;
     text-align: left;
     width: 100%;
+    transition: background-color 120ms var(--ease), color 120ms var(--ease);
   }
 
   .ctx-item:hover {
-    background-color: var(--brand);
-    color: #fff;
+    background-color: var(--bg-elevated);
+    color: var(--text-normal);
   }
 
   .ctx-item.danger {
@@ -7540,25 +7678,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .ctx-item.danger:hover {
-    background-color: var(--red);
-    color: #fff;
+    background-color: rgba(229, 72, 77, 0.16);
+    color: var(--red);
   }
 
   /* 하단 토스트 알림 */
   .toast {
     position: fixed;
-    bottom: 22px;
+    bottom: 24px;
     right: 24px;
     z-index: 10000;
-    background-color: var(--bg-tertiary);
+    background-color: var(--bg-card);
     color: var(--text-normal);
-    border: 1px solid var(--brand);
+    border: 1px solid var(--border-subtle);
     padding: 10px 16px;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 13px;
-    font-weight: 600;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-    transition: opacity 0.25s ease, transform 0.25s ease;
+    font-weight: 500;
+    box-shadow: var(--popover-shadow);
+    transition: opacity 180ms var(--ease), transform 180ms var(--ease);
   }
 
   /* 뽀모도로 타이머 */
@@ -7566,56 +7704,69 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background-color: var(--bg-card);
-    padding: 14px 16px;
-    border-radius: 10px;
+    background-color: var(--bg-elevated);
+    padding: 16px;
+    border-radius: 8px;
     gap: 12px;
     border: 1px solid var(--border-subtle);
   }
 
   .pomo-time {
-    font-size: 34px;
-    font-weight: 800;
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 1px;
+    line-height: 1;
   }
 
   .btn-group {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
   .btn {
     background-color: var(--brand);
     color: #fff;
-    border: none;
-    padding: 6px 11px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
+    border: 1px solid transparent;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: filter 0.15s, transform 0.08s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background-color 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease), transform 100ms var(--ease);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .btn:hover {
-    filter: brightness(1.1);
+    filter: brightness(1.08);
   }
 
   .btn:active {
-    transform: scale(0.97);
+    transform: scale(0.98);
   }
 
-  .btn.secondary {
-    background-color: var(--bg-active);
+  .btn.secondary, .btn.ghost {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-subtle);
     color: var(--text-normal);
+    box-shadow: var(--top-highlight);
+  }
+
+  .btn.secondary:hover, .btn.ghost:hover {
+    background-color: var(--bg-active);
+    filter: none;
   }
 
   .btn.success {
     background-color: var(--green);
-    color: #fff;
+    color: #0f0f10;
   }
 
   /* 할 일 (Todo) 리스트 */
@@ -7626,13 +7777,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   .todo-input {
     flex: 1;
-    background-color: var(--bg-primary);
+    height: 36px;
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     color: var(--text-normal);
-    padding: 9px 12px;
+    padding: 0 12px;
     border-radius: 8px;
     font-size: 13px;
     outline: none;
+    transition: border-color 140ms var(--ease);
   }
 
   .todo-input:focus {
@@ -7642,7 +7795,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .todo-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
@@ -7652,16 +7805,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background-color: var(--bg-card);
-    padding: 9px 12px;
+    background-color: var(--bg-elevated);
+    padding: 10px 12px;
     border-radius: 8px;
     cursor: pointer;
-    transition: background 0.12s;
+    transition: background-color 140ms var(--ease);
     border: 1px solid var(--border-subtle);
   }
 
   .todo-item:hover {
-    background-color: var(--bg-hover);
+    background-color: var(--bg-active);
   }
 
   .todo-left {
@@ -7674,8 +7827,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .checkbox {
     width: 18px;
     height: 18px;
-    border-radius: 5px;
-    border: 2px solid var(--text-muted);
+    border-radius: 4px;
+    border: 1.5px solid var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7700,34 +7853,36 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     color: var(--text-muted);
     cursor: pointer;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 12px;
+    transition: background-color 140ms var(--ease), color 140ms var(--ease);
   }
 
   .todo-del:hover {
-    background-color: rgba(229, 57, 53, 0.15);
+    background-color: rgba(229, 72, 77, 0.14);
     color: var(--red);
   }
 
   /* 코어 그리드 */
   .cores-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
     gap: 8px;
   }
 
   .core-chip {
-    background-color: var(--bg-card);
-    padding: 8px 10px;
-    border-radius: 6px;
+    background-color: var(--bg-elevated);
+    padding: 8px 12px;
+    border-radius: 8px;
     font-size: 12px;
+    font-variant-numeric: tabular-nums;
     border: 1px solid var(--border-subtle);
   }
 
   .core-chip-top {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 5px;
+    margin-bottom: 6px;
     color: var(--text-muted);
   }
 
@@ -7735,7 +7890,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .gamelog-view {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
     flex: 1 1 0;
     min-height: 0;
   }
@@ -7743,7 +7898,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .rank-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
@@ -7751,37 +7906,37 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .rank-item {
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    padding: 12px 14px;
+    border-radius: 8px;
+    padding: 12px 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    transition: border-color 0.2s ease, transform 0.15s ease;
+    transition: border-color 150ms var(--ease);
   }
 
   .rank-item:hover {
-    border-color: var(--brand);
+    border-color: rgba(var(--brand-rgb), 0.5);
   }
 
   .rank-item.top-1 {
-    border-left: 4px solid #f59f00;
+    border-left: 3px solid var(--brand);
   }
 
   .rank-item.top-2 {
-    border-left: 4px solid #949ba4;
+    border-left: 3px solid var(--text-secondary);
   }
 
   .rank-item.top-3 {
-    border-left: 4px solid #d97706;
+    border-left: 3px solid var(--text-muted);
   }
 
   .rank-top-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
   }
 
   .rank-name-wrap {
@@ -7792,23 +7947,26 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .rank-badge {
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 800;
-    padding: 2px 7px;
-    border-radius: 6px;
-    background-color: var(--bg-active);
-    color: var(--text-normal);
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
     flex-shrink: 0;
   }
 
   .rank-badge.gold {
-    background-color: rgba(245, 159, 0, 0.2);
-    color: #f59f00;
+    background-color: rgba(var(--brand-rgb), 0.14);
+    border-color: rgba(var(--brand-rgb), 0.35);
+    color: var(--brand);
   }
 
   .rank-title {
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 500;
     color: var(--text-normal);
     white-space: nowrap;
     overflow: hidden;
@@ -7816,9 +7974,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .rank-time-hms {
-    font-size: 15px;
-    font-weight: 800;
-    color: var(--neon-green);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-normal);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
@@ -7827,32 +7986,32 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--text-muted);
     gap: 8px;
   }
 
   .filter-pills {
     display: flex;
-    gap: 5px;
+    gap: 4px;
     align-items: center;
   }
 
   .filter-pill {
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
-    color: var(--text-muted);
+    color: var(--text-secondary);
     padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 700;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background-color 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease);
   }
 
   .filter-pill:hover {
     color: var(--text-normal);
-    background-color: var(--bg-hover);
+    background-color: var(--bg-active);
   }
 
   .filter-pill.active {
@@ -7868,7 +8027,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 28px 18px;
+    padding: 28px 20px;
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.6;
@@ -7877,30 +8036,30 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   /* 스마트 경고 배너 및 알림 설정 스타일 */
   .live-alert-banner {
-    background: linear-gradient(90deg, rgba(229, 57, 53, 0.18), rgba(230, 103, 0, 0.14));
-    border: 1px solid rgba(229, 57, 53, 0.55);
-    border-left: 4px solid var(--red);
+    background-color: rgba(229, 72, 77, 0.1);
+    border: 1px solid rgba(229, 72, 77, 0.35);
+    border-left: 3px solid var(--red);
     border-radius: 10px;
-    padding: 10px 14px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     flex-shrink: 0;
-    animation: fadeIn 0.2s ease;
+    animation: fadeIn 180ms var(--ease);
   }
 
   .live-alert-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     min-width: 0;
     flex: 1;
   }
 
   .live-alert-text {
-    font-size: 12.5px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text-normal);
     white-space: nowrap;
     overflow: hidden;
@@ -7908,31 +8067,43 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .alert-btn-active {
-    background-color: rgba(229, 57, 53, 0.2) !important;
-    border-color: var(--red) !important;
+    background-color: rgba(229, 72, 77, 0.16) !important;
+    border-color: rgba(229, 72, 77, 0.5) !important;
     color: var(--red) !important;
-    animation: pulse 1.2s infinite;
   }
 
   .alert-rules-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 16px;
   }
 
   .alert-rule-card {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 12px;
-    padding: 14px 16px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     min-width: 0;
   }
 
+  .alert-rule-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .alert-rule-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-normal);
+  }
+
   .alert-rule-card.disabled-rule {
-    opacity: 0.55;
+    opacity: 0.5;
   }
 
   .range-slider {
@@ -7949,8 +8120,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     background-color: var(--bg-primary);
     display: flex;
     flex-direction: column;
-    padding: 8px 10px;
-    gap: 7px;
+    padding: 8px;
+    gap: 8px;
     overflow: hidden;
   }
 
@@ -7958,11 +8129,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    background-color: var(--bg-secondary);
+    gap: 8px;
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 5px 9px;
+    padding: 6px 10px;
     flex-shrink: 0;
   }
 
@@ -7981,10 +8152,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .mini-hud-tile {
-    background-color: var(--bg-secondary);
+    background-color: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
-    padding: 6px 8px;
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -7993,10 +8164,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .mini-hud-label {
-    font-size: 10px;
-    font-weight: 800;
+    font-size: 11px;
+    font-weight: 500;
     color: var(--text-muted);
-    text-transform: uppercase;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -8007,7 +8177,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   .mini-hud-val {
     font-size: clamp(14px, 3.6vw, 18px);
-    font-weight: 900;
+    font-weight: 600;
+    color: var(--text-normal);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
@@ -8016,7 +8187,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .mini-hud-sub {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -8025,21 +8196,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .mini-btn {
-    background-color: var(--bg-card);
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     color: var(--text-normal);
-    font-size: 10.5px;
-    font-weight: 700;
-    padding: 3px 7px;
-    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
-    transition: all 0.12s ease;
+    transition: background-color 140ms var(--ease), border-color 140ms var(--ease);
   }
 
   .mini-btn:hover {
-    background-color: var(--bg-hover);
-    border-color: var(--brand);
+    background-color: var(--bg-active);
+    border-color: rgba(var(--brand-rgb), 0.5);
   }
 
   .mini-btn.active {
@@ -8052,12 +8223,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .mini-hud-opacity-control {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background-color: var(--bg-card);
+    gap: 6px;
+    background-color: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
-    border-radius: 5px;
-    padding: 2px 7px;
-    height: 23px;
+    border-radius: 6px;
+    padding: 2px 8px;
+    height: 24px;
     box-sizing: border-box;
     cursor: default;
     user-select: none;
@@ -8069,7 +8240,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     width: 68px;
     height: 4px;
     border-radius: 2px;
-    background: rgba(120, 120, 140, 0.4);
+    background: rgba(133, 133, 139, 0.35);
     outline: none;
     cursor: pointer;
     accent-color: var(--brand);
@@ -8079,17 +8250,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .mini-hud-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: var(--brand);
     cursor: pointer;
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
-    transition: transform 0.1s ease;
+    transition: transform 120ms var(--ease);
   }
 
   .mini-hud-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.25);
+    transform: scale(1.15);
   }
 
   /* 미니 HUD 모드 활성화 시 기본 대시보드 및 사이드바 DOM 요소 완전 은닉 (투명 시 비침 원천 차단) */
@@ -8109,74 +8279,73 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   .hud-anchor-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-    margin-top: 6px;
+    gap: 8px;
+    margin-top: 8px;
     padding: 8px;
-    border-radius: 9px;
+    border-radius: 10px;
     background-color: var(--bg-tertiary);
-    border: 1px dashed var(--border-subtle);
+    border: 1px solid var(--border-subtle);
   }
 
   .hud-anchor-btn {
-    padding: 8px 6px;
-    border-radius: 7px;
+    padding: 8px;
+    border-radius: 6px;
     border: 1px solid var(--border-subtle);
     background-color: var(--bg-card);
-    color: var(--text-normal);
-    font-size: 11.5px;
-    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.14s ease;
+    transition: background-color 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease);
     text-align: center;
     white-space: nowrap;
   }
 
   .hud-anchor-btn:hover {
-    border-color: var(--brand);
-    background-color: rgba(var(--brand-rgb), 0.12);
-    transform: translateY(-1px);
+    border-color: rgba(var(--brand-rgb), 0.5);
+    color: var(--text-normal);
+    background-color: var(--bg-elevated);
   }
 
   .hud-anchor-btn.active {
     background-color: var(--brand);
     border-color: var(--brand);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(var(--brand-rgb), 0.35);
   }
 
   /* 화면·미니 HUD 맞춤 설정 스타일 */
   .custom-toggle-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 12px;
   }
 
   .custom-toggle-card {
-    background-color: var(--bg-primary);
-    border: 1.5px solid var(--border-subtle);
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     border-radius: 10px;
-    padding: 11px 13px;
+    padding: 12px 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
     cursor: pointer;
     user-select: none;
-    transition: all 0.15s ease;
+    transition: border-color 140ms var(--ease), background-color 140ms var(--ease);
   }
 
   .custom-toggle-card:hover {
-    border-color: var(--brand);
-    background-color: var(--bg-hover);
+    border-color: rgba(var(--brand-rgb), 0.5);
+    background-color: var(--bg-active);
   }
 
   .custom-toggle-card.active {
-    border-color: var(--brand);
-    background-color: rgba(var(--brand-rgb), 0.11);
+    border-color: rgba(var(--brand-rgb), 0.45);
+    background-color: rgba(var(--brand-rgb), 0.08);
   }
 
   .custom-toggle-card.disabled-item {
-    opacity: 0.55;
+    opacity: 0.5;
   }
 
   .hud-style-grid {
@@ -8186,34 +8355,33 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .hud-style-card {
-    background-color: var(--bg-primary);
-    border: 2px solid var(--border-subtle);
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
     border-radius: 12px;
-    padding: 14px 16px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     cursor: pointer;
     user-select: none;
-    transition: all 0.16s ease;
+    transition: border-color 140ms var(--ease), background-color 140ms var(--ease);
   }
 
   .hud-style-card:hover {
-    border-color: var(--brand);
+    border-color: rgba(var(--brand-rgb), 0.5);
   }
 
   .hud-style-card.selected {
     border-color: var(--brand);
-    background-color: rgba(var(--brand-rgb), 0.12);
-    box-shadow: 0 0 0 1px var(--brand);
+    background-color: rgba(var(--brand-rgb), 0.08);
   }
 
   .hud-diagram-box {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 5px;
+    gap: 4px;
     padding: 8px;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
   }
@@ -8223,16 +8391,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     grid-template-columns: repeat(6, 1fr);
     gap: 4px;
     padding: 10px 8px;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
   }
 
   .hud-diagram-cell {
-    height: 18px;
+    height: 16px;
     border-radius: 4px;
-    background: rgba(var(--brand-rgb), 0.35);
-    border: 1px solid rgba(var(--brand-rgb), 0.65);
+    background: rgba(var(--brand-rgb), 0.25);
+    border: 1px solid rgba(var(--brand-rgb), 0.45);
   }
 
   .hidden {
@@ -8248,29 +8416,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   @media (max-width: 1180px) {
     .channel-sidebar {
-      width: 196px;
+      width: 204px;
     }
     .content-scroll {
-      padding: 12px 14px;
+      padding: 16px;
       gap: 12px;
     }
     .grid-4, .grid-main {
-      gap: 10px;
+      gap: 12px;
     }
     .card {
-      padding: 11px 12px;
+      padding: 14px 16px;
     }
   }
 
   @media (max-width: 980px) {
     .server-rail {
-      width: 58px;
+      width: 56px;
     }
     .channel-sidebar {
-      width: 176px;
+      width: 184px;
     }
     .top-bar {
-      padding: 0 12px;
+      padding: 0 16px;
     }
     .top-bar-desc {
       display: none;
@@ -8293,28 +8461,28 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       display: none;
     }
     .server-rail {
-      width: 54px;
+      width: 52px;
       padding: 8px 0;
     }
     .top-bar-title {
-      font-size: 14.5px;
+      font-size: 15px;
     }
     .content-scroll {
-      padding: 10px;
-      gap: 10px;
+      padding: 12px;
+      gap: 12px;
     }
     .hud-anchor-grid {
       gap: 4px;
     }
     .hud-anchor-btn {
       padding: 6px 4px;
-      font-size: 10.5px;
+      font-size: 11px;
     }
   }
 
   @media (max-width: 540px) {
     .server-rail {
-      width: 46px;
+      width: 48px;
     }
     .grid-4 {
       grid-template-columns: minmax(0, 1fr);
@@ -8410,77 +8578,79 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </div>
   </aside>
 
-  <!-- 2. 채널 목록 사이드바 -->
+  <!-- 2. 내비게이션 사이드바 -->
   <aside class="channel-sidebar">
     <div class="server-header">
       <span style="display: inline-flex; align-items: center; gap: 8px;">
-        <img src="/favicon.ico?v=3" alt="CoreFlow" width="20" height="20" style="border-radius: 5px; display: block;" />
-        <span><strong style="color: var(--brand);">CORE</strong>FLOW</span>
+        <img src="/favicon.ico?v=3" alt="CoreFlow" width="20" height="20" style="border-radius: 4px; display: block;" />
+        <span style="font-weight: 600; color: var(--text-normal);">CoreFlow</span>
       </span>
-      <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">v__COREFLOW_APP_VERSION__</span>
+      <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; font-weight: 400;">v__COREFLOW_APP_VERSION__</span>
     </div>
 
     <div class="channel-list">
-      <div class="category-label">모니터링 & 스튜디오</div>
+      <div class="category-label">모니터링</div>
       <div class="channel-item active" id="chan-overview" onclick="switchTab('overview')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="7" rx="1"></rect>
           <rect x="14" y="3" width="7" height="7" rx="1"></rect>
           <rect x="14" y="14" width="7" height="7" rx="1"></rect>
           <rect x="3" y="14" width="7" height="7" rx="1"></rect>
         </svg>
-        <span>통합-대시보드</span>
+        <span>통합 대시보드</span>
       </div>
       <div class="channel-item" id="chan-system" onclick="switchTab('system')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <rect x="4" y="4" width="16" height="16" rx="2"></rect>
           <rect x="9" y="9" width="6" height="6"></rect>
           <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path>
         </svg>
-        <span>하드웨어-GPU-상세</span>
+        <span>하드웨어 · GPU</span>
       </div>
       <div class="channel-item" id="chan-netdisk" onclick="switchTab('netdisk')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
           <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
           <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
         </svg>
-        <span>네트워크-디스크-모니터</span>
+        <span>네트워크 · 디스크</span>
       </div>
       <div class="channel-item" id="chan-gamelog" onclick="switchTab('gamelog')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <line x1="6" y1="12" x2="10" y2="12"></line>
           <line x1="8" y1="10" x2="8" y2="14"></line>
           <line x1="15" y1="13" x2="15.01" y2="13"></line>
           <line x1="18" y1="11" x2="18.01" y2="11"></line>
           <rect x="2" y="6" width="20" height="12" rx="4"></rect>
         </svg>
-        <span>게임-플레이-기록</span>
+        <span>게임 플레이 기록</span>
       </div>
       <div class="channel-item" id="chan-productivity" onclick="switchTab('productivity')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="13" r="8"></circle>
           <path d="M12 9v4l2.5 2.5"></path>
           <path d="M9 2h6"></path>
         </svg>
-        <span>뽀모도로-할일-보드</span>
+        <span>집중 타이머 · 할 일</span>
       </div>
+
+      <div class="category-label">도구 및 설정</div>
       <div class="channel-item" id="chan-analysis" onclick="openRecordAnalysis()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 3v18h18"></path>
           <path d="M7 15l4-5 4 3 5-7"></path>
         </svg>
-        <span>녹화-분석-리포트</span>
+        <span>녹화 분석</span>
       </div>
       <div class="channel-item" id="chan-alerts" onclick="openAlertSettings()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
-        <span>스마트-경고-알림</span>
+        <span>경고 알림</span>
       </div>
       <div class="channel-item" id="chan-uisettings" onclick="openUiSettingsModal()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <line x1="4" y1="21" x2="4" y2="14"></line>
           <line x1="4" y1="10" x2="4" y2="3"></line>
           <line x1="12" y1="21" x2="12" y2="12"></line>
@@ -8491,18 +8661,18 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <line x1="9" y1="8" x2="15" y2="8"></line>
           <line x1="17" y1="16" x2="23" y2="16"></line>
         </svg>
-        <span>화면·HUD-맞춤설정</span>
+        <span>화면 · HUD 설정</span>
       </div>
       <div class="channel-item" id="chan-help" onclick="openHelpModal()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.85;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
           <line x1="12" y1="17" x2="12.01" y2="17"></line>
         </svg>
-        <span>도움말-진단-가이드</span>
+        <span>진단 가이드</span>
       </div>
 
-      <div class="category-label" style="margin-top: 14px;">하드웨어 엔진</div>
+      <div class="category-label">시스템 상태</div>
       <div class="voice-status-box">
         <div class="voice-status-title">
           <span class="pulse-dot"></span> 실시간 텔레메트리 활성
@@ -8512,35 +8682,40 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <div class="voice-status-sub" id="sidebar-uptime">가동 시간 측정 중...</div>
       </div>
 
-      <!-- 디스코드 특유의 '활동 중인 게임' 상태 카드 -->
-      <div class="playing-box" id="sidebar-game-box" onclick="switchTab('gamelog')" style="cursor: pointer;" title="클릭하여 게임 플레이 기록 및 통계 메뉴 열기">
-        <div class="playing-header" id="sidebar-game-header">🎮 GAME MONITOR</div>
+      <!-- 게임 모니터 상태 카드 -->
+      <div class="playing-box" id="sidebar-game-box" onclick="switchTab('gamelog')" style="cursor: pointer;" title="게임 플레이 기록 및 통계 열기">
+        <div class="playing-header" id="sidebar-game-header">게임 모니터</div>
         <div class="playing-title" id="sidebar-game-name">실행 중인 게임 없음</div>
-        <div class="playing-fps" id="sidebar-game-fps" style="color: var(--text-muted);">게임 실행 시 실시간 FPS가 표시됩니다</div>
-        <div class="playing-fps" id="sidebar-game-time" style="color: var(--brand); font-variant-numeric: tabular-nums; margin-top: 2px;">⏱️ 실행 시간: 00:00:00</div>
+        <div class="playing-fps" id="sidebar-game-fps" style="color: var(--text-muted);">게임 실행 시 실시간 FPS 표시</div>
+        <div class="playing-fps" id="sidebar-game-time" style="color: var(--brand); font-family: var(--font-mono); margin-top: 4px;">00:00:00</div>
       </div>
 
       <!-- 윈도우 시작 시 자동 실행 옵션 스위치 -->
-      <div class="startup-box" onclick="toggleStartupAutoRun()" title="클릭하여 Windows 부팅/로그인 시 이 프로그램을 자동으로 실행하도록 설정하거나 해제합니다">
-        <span class="startup-label">🚀 윈도우 시작 시 자동 실행</span>
+      <div class="startup-box" onclick="toggleStartupAutoRun()" title="Windows 시작 시 CoreFlow 자동 실행 전환">
+        <span class="startup-label">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+          시작 시 자동 실행
+        </span>
         <span class="switch-pill" id="startup-switch-pill">OFF</span>
       </div>
     </div>
 
-    <!-- 디스코드 스타일 좌측 하단 유저 상태 바 (Windows 사용자 이름 & 프로필 사진 연동) -->
+    <!-- 좌측 하단 유저 상태 바 -->
     <div class="user-panel">
       <div class="user-info" style="min-width: 0; flex: 1;">
-        <div class="avatar" onclick="document.getElementById('avatar-file-input').click()" oncontextmenu="resetCustomAvatar(event)" title="좌클릭: 프로필 사진 직접 선택 / 우클릭: Windows 기본 계정 사진으로 초기화">
+        <div class="avatar" onclick="document.getElementById('avatar-file-input').click()" oncontextmenu="resetCustomAvatar(event)" title="좌클릭: 프로필 사진 선택 / 우클릭: 기본 계정 사진으로 초기화">
           <img id="user-avatar-img" src="/api/avatar" class="avatar-img" alt="Profile">
           <div class="avatar-status"></div>
         </div>
         <input type="file" id="avatar-file-input" accept="image/*" style="display:none" onchange="onUploadCustomAvatar(event)">
         <div style="min-width: 0; flex: 1;">
           <div class="user-name" id="sidebar-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Windows User</div>
-          <div class="user-tag" id="mini-status" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CPU 0% • GPU 0%</div>
+          <div class="user-tag" id="mini-status" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CPU 0% · GPU 0%</div>
         </div>
       </div>
-      <button class="icon-btn danger" onclick="quitApp()" title="프로그램 완전 종료">✖</button>
+      <button class="icon-btn danger" onclick="quitApp()" title="프로그램 종료">
+        <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
     </div>
   </aside>
 
@@ -8548,54 +8723,63 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <main class="main-view">
     <header class="top-bar">
       <div class="top-bar-left">
-        <span style="font-size: 20px; color: var(--brand); font-weight: 700; flex-shrink: 0;">#</span>
-        <span class="top-bar-title" id="top-title">통합-대시보드</span>
-        <span class="top-bar-desc" id="top-desc">CPU • GPU • 게임 FPS 실시간 모니터</span>
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <span class="top-bar-title" id="top-title">통합 대시보드</span>
+        <span class="top-bar-desc" id="top-desc">CPU · GPU · 게임 FPS 실시간 계측</span>
       </div>
       <div class="top-bar-right">
         <div class="top-tools-wrap" id="top-tools-wrap">
-          <button id="btn-top-tools-toggle" class="btn secondary top-tools-toggle" onclick="toggleTopToolsMenu(event)" title="녹화, 분석 리포트, 스마트 알림, 화면·HUD 설정, 미니 HUD, 도움말, 업데이트 및 테마 메뉴를 열고 닫습니다">
-            <span>🧰 도구 · 메뉴</span>
-            <span id="top-tools-arrow" style="font-size: 10px; opacity: 0.8;">▾</span>
+          <button id="btn-top-tools-toggle" class="btn secondary top-tools-toggle" onclick="toggleTopToolsMenu(event)" title="녹화, 분석 리포트, 알림, 설정, 미니 HUD, 도움말, 업데이트 및 테마 메뉴">
+            <svg class="ico" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+            <span>도구 및 메뉴</span>
+            <svg id="top-tools-arrow" class="ico" style="width: 14px; height: 14px; color: var(--text-muted);" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </button>
           <div id="top-tools-popover" class="top-tools-popover hidden" onclick="event.stopPropagation()">
             <div class="top-tools-header">
-              <span>🧰 빠른 도구 및 메뉴</span>
-              <span style="font-size: 10.5px; font-weight: 600;">창 크기 자동 맞춤</span>
+              <span>빠른 도구</span>
+              <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">F1 · F10</span>
             </div>
             <div class="top-tools-grid">
-              <button id="btn-record" class="rec-btn" onclick="toggleRecording()" title="클릭 시 실시간 모니터링 녹화를 시작하며, 정지 시 CSV 파일 자동 저장 및 정밀 분석 리포트를 표시합니다">
+              <button id="btn-record" class="rec-btn" onclick="toggleRecording()" title="실시간 모니터링 녹화 시작/정지 (CSV 자동 저장)">
                 <span class="rec-dot"></span>
                 <span id="btn-record-text">녹화 시작</span>
               </button>
               <button id="btn-analysis" class="btn secondary" onclick="closeTopToolsMenu(); openRecordAnalysis()" title="녹화된 모니터링 데이터 정밀 분석 리포트 열기">
-                📊 분석 리포트
+                <svg class="ico" viewBox="0 0 24 24"><path d="M3 3v18h18"></path><path d="M7 15l4-5 4 3 5-7"></path></svg>
+                <span>분석 리포트</span>
               </button>
-              <button id="btn-alerts" class="btn secondary" onclick="closeTopToolsMenu(); openAlertSettings()" title="GPU 과열, CPU/RAM 과부하 및 장시간 게임 플레이 스마트 경고 알림 설정">
-                🔔 <span id="btn-alerts-text">스마트 알림</span>
+              <button id="btn-alerts" class="btn secondary" onclick="closeTopToolsMenu(); openAlertSettings()" title="GPU 과열, CPU/RAM 과부하 및 장시간 플레이 경고 알림 설정">
+                <svg class="ico" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                <span id="btn-alerts-text">경고 알림</span>
               </button>
-              <button id="btn-view-mode" class="btn secondary" onclick="toggleDashboardViewMode()" title="그래프 차트 중심 화면과 상세 수치 그리드 화면을 전환합니다">
-                <span id="btn-view-mode-icon">📊</span> <span id="btn-view-mode-text">차트형</span>
+              <button id="btn-view-mode" class="btn secondary" onclick="toggleDashboardViewMode()" title="그래프 차트 화면과 수치 그리드 화면 전환">
+                <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect></svg>
+                <span id="btn-view-mode-icon" class="hidden"></span>
+                <span id="btn-view-mode-text">차트형</span>
               </button>
-              <button id="btn-uisettings" class="btn secondary" onclick="closeTopToolsMenu(); openUiSettingsModal()" title="원하는 하드웨어 모니터링 항목만 골라 보거나 미니 HUD(박스형/가로바/8방향 위치)를 설정합니다">
-                🎛️ 화면·HUD 설정
+              <button id="btn-uisettings" class="btn secondary" onclick="closeTopToolsMenu(); openUiSettingsModal()" title="표시 항목 및 미니 HUD 레이아웃·위치 설정">
+                <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                <span>화면 · HUD 설정</span>
               </button>
-              <button id="btn-minihud" class="btn secondary" onclick="closeTopToolsMenu(); enterMiniHudMode()" title="창을 작게 줄이고 화면 최상단(항상 위)에 고정하는 원클릭 컴팩트 미니 HUD 모드로 전환합니다 (단축키 F10)">
-                🗗 미니 HUD
+              <button id="btn-minihud" class="btn secondary" onclick="closeTopToolsMenu(); enterMiniHudMode()" title="컴팩트 미니 HUD 모드로 전환 (F10)">
+                <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><rect x="12" y="12" width="6" height="6" rx="1"></rect></svg>
+                <span>미니 HUD</span>
               </button>
-              <button id="btn-help-guide" class="btn secondary" onclick="closeTopToolsMenu(); openHelpModal()" title="각 메뉴별 수치 해석 방법, 주의해야 할 이상 징후 및 해결 팁 가이드를 엽니다 (단축키 F1)">
-                ❓ 도움말
+              <button id="btn-help-guide" class="btn secondary" onclick="closeTopToolsMenu(); openHelpModal()" title="수치 해석 및 이상 징후 진단 가이드 (F1)">
+                <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span>진단 가이드</span>
               </button>
-              <button id="btn-update-check" class="btn secondary" onclick="closeTopToolsMenu(); openUpdateModal(true)" title="GitHub 저장소(neverloselkb/coreFlow)에서 최신 버전 업데이트를 확인하고 자동 설치합니다">
-                🔄 <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
+              <button id="btn-update-check" class="btn secondary" onclick="closeTopToolsMenu(); openUpdateModal(true)" title="GitHub Releases 최신 버전 확인 및 업데이트">
+                <svg class="ico" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span id="btn-update-text">v__COREFLOW_APP_VERSION__</span>
               </button>
             </div>
             <div class="top-tools-theme-row">
-              <span style="font-size: 12px; font-weight: 700; color: var(--text-normal); white-space: nowrap;">🎨 테마 모드</span>
+              <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary); white-space: nowrap;">테마 모드</span>
               <select id="theme-mode-select" class="select-input" onchange="onChangeThemeOverride()" title="테마 모드 선택">
-                <option value="auto">🖥️ 테마 자동</option>
-                <option value="light">☀️ 라이트</option>
-                <option value="dark">🌙 다크</option>
+                <option value="auto">시스템 자동</option>
+                <option value="light">라이트</option>
+                <option value="dark">다크</option>
               </select>
             </div>
           </div>
@@ -8604,54 +8788,52 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     </header>
 
     <div class="content-scroll">
-      <!-- 실시간 스마트 경고 알림 배너 (임계치 초과 시 자동 표시) -->
+      <!-- 실시간 경고 알림 배너 (임계치 초과 시 자동 표시) -->
       <div id="live-alert-banner" class="live-alert-banner hidden">
         <div class="live-alert-left">
-          <span style="font-size: 18px; flex-shrink: 0;">🚨</span>
+          <svg class="ico" style="color: var(--red);" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
           <div class="live-alert-text">
-            <div id="live-alert-title" style="font-weight: 800; font-size: 13.5px;">스마트 경고 감지</div>
+            <div id="live-alert-title" style="font-weight: 600; font-size: 13px;">임계치 경고 감지</div>
             <div id="live-alert-desc" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">세부 내용</div>
           </div>
         </div>
-        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
-          <button class="btn secondary" onclick="snoozeAlerts()" title="설정된 쿨타임 동안 경고 배너와 알림음을 일시 숨깁니다">🔕 일시 숨김</button>
-          <button class="btn" onclick="openAlertSettings()">⚙️ 알림 설정</button>
+        <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+          <button class="btn secondary" onclick="snoozeAlerts()" title="설정된 쿨타임 동안 경고 숨김">일시 숨김</button>
+          <button class="btn" onclick="openAlertSettings()">알림 설정</button>
         </div>
       </div>
 
       <!-- GitHub 새 버전 업데이트 알림 배너 -->
-      <div id="update-notify-banner" class="live-alert-banner hidden" style="border-color: var(--neon-green); background: rgba(0, 200, 117, 0.12);">
+      <div id="update-notify-banner" class="live-alert-banner hidden" style="border-color: rgba(76, 195, 138, 0.4); border-left-color: var(--green); background: rgba(76, 195, 138, 0.08);">
         <div class="live-alert-left">
-          <span style="font-size: 18px; flex-shrink: 0;">🎉</span>
+          <svg class="ico" style="color: var(--green);" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
           <div class="live-alert-text">
-            <div id="update-banner-title" style="font-weight: 800; font-size: 13.5px; color: var(--neon-green);">새로운 CoreFlow 업데이트가 출시되었습니다!</div>
-            <div id="update-banner-desc" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">GitHub Releases에서 원클릭으로 최신 버전을 자동 다운로드 및 설치할 수 있습니다.</div>
+            <div id="update-banner-title" style="font-weight: 600; font-size: 13px; color: var(--green);">새 버전 업데이트가 있습니다</div>
+            <div id="update-banner-desc" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">GitHub Releases에서 최신 버전을 다운로드하고 설치할 수 있습니다</div>
           </div>
         </div>
-        <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
           <button class="btn secondary" onclick="document.getElementById('update-notify-banner').classList.add('hidden')">나중에</button>
-          <button class="btn" style="background: var(--neon-green); color: #000; font-weight: 800;" onclick="openUpdateModal(false)">🚀 지금 업데이트 확인</button>
+          <button class="btn success" onclick="openUpdateModal(false)">업데이트 확인</button>
         </div>
       </div>
 
       <!-- 상단 하드웨어 핵심 지표 가이드 헤더 -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin: 6px 4px 8px; font-size: 12px; color: var(--text-muted);">
-        <span style="font-weight: 700; color: var(--text-normal); font-size: 12.5px;">⚡ 실시간 핵심 모니터링</span>
-        <span style="display: inline-flex; align-items: center; gap: 4px; opacity: 0.85; font-size: 11.5px;">
-          <span>💡</span> 카드를 더블클릭하면 부품별 정밀 상세 모니터링이 열립니다
-        </span>
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted);">
+        <span style="font-weight: 500; color: var(--text-secondary); font-size: 13px;">실시간 하드웨어 계측</span>
+        <span style="font-size: 12px; color: var(--text-muted);">카드를 더블클릭하면 부품별 상세 보기가 열립니다</span>
       </div>
 
       <!-- 상단 4열 하드웨어 & 게이밍 요약 그리드 (CPU / RAM / GPU / FPS) -->
       <section class="grid-4" id="sec-metrics">
         <!-- 1. CPU 카드 -->
-        <div class="card zoom-card" id="card-metric-cpu" ondblclick="openDetailView('cpu')" title="더블클릭하여 CPU 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-cpu" ondblclick="openDetailView('cpu')" title="더블클릭하여 CPU 상세 모니터링 열기">
           <div class="card-header">
-            <div class="card-title">⚡ CPU 부하</div>
+            <div class="card-title">CPU 부하</div>
             <span class="metric-sub" id="core-count-label">0 코어</span>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
-            <div class="metric-big" id="cpu-percent" style="color: var(--brand);">0.0%</div>
+            <div class="metric-big" id="cpu-percent">0.0%</div>
           </div>
           <div class="progress-track">
             <div class="progress-fill" id="cpu-bar" style="width: 0%; background: var(--brand);"></div>
@@ -8674,9 +8856,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <span class="num-lbl">프로세서</span>
               <span class="num-val" id="cpu-grid-brand" style="font-size: 11px;">-</span>
             </div>
-            <div class="num-cell full-span" style="padding-top: 4px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 3px;">
-                <span class="num-lbl">논리 코어 실시간 매트릭스</span>
+            <div class="num-cell full-span" style="padding-top: 6px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
+                <span class="num-lbl">논리 코어 매트릭스</span>
                 <span class="num-sub" id="cpu-grid-cores-sub">0 코어</span>
               </div>
               <div class="core-mini-grid" id="cpu-grid-core-chips"></div>
@@ -8685,17 +8867,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 2. RAM 카드 -->
-        <div class="card zoom-card" id="card-metric-mem" ondblclick="openDetailView('mem')" title="더블클릭하여 RAM 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-mem" ondblclick="openDetailView('mem')" title="더블클릭하여 RAM 상세 모니터링 열기">
           <div class="card-header">
-            <div class="card-title">💾 시스템 RAM</div>
-            <span class="metric-sub" id="swap-label">Swap: 0 GB</span>
+            <div class="card-title">시스템 RAM</div>
+            <span class="metric-sub" id="swap-label">Swap 0 GB</span>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
-            <div class="metric-big" id="mem-percent" style="color: var(--purple);">0.0%</div>
+            <div class="metric-big" id="mem-percent">0.0%</div>
             <div class="metric-sub" id="mem-detail">0 / 0 GB</div>
           </div>
           <div class="progress-track">
-            <div class="progress-fill" id="mem-bar" style="width: 0%; background: linear-gradient(90deg, #8e44ad, #d63384);"></div>
+            <div class="progress-fill" id="mem-bar" style="width: 0%; background: var(--purple);"></div>
           </div>
           <canvas id="mem-canvas" class="chart-canvas" width="320" height="80"></canvas>
           <div class="metric-num-grid" id="mem-num-grid">
@@ -8704,11 +8886,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <span class="num-val" id="mem-grid-used">0.00 GB</span>
             </div>
             <div class="num-cell">
-              <span class="num-lbl">가용(여유) RAM</span>
-              <span class="num-val" id="mem-grid-avail" style="color: var(--neon-green);">0.00 GB</span>
+              <span class="num-lbl">여유 RAM</span>
+              <span class="num-val" id="mem-grid-avail" style="color: var(--green);">0.00 GB</span>
             </div>
             <div class="num-cell">
-              <span class="num-lbl">전체 물리 메모리</span>
+              <span class="num-lbl">전체 메모리</span>
               <span class="num-val" id="mem-grid-total">0.0 GB</span>
             </div>
             <div class="num-cell">
@@ -8717,38 +8899,38 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             </div>
             <div class="num-cell full-span">
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="num-lbl">가상 메모리 (Pagefile / Swap)</span>
-                <span class="num-val" id="mem-grid-swap" style="font-size: 11.5px;">0.0 GB</span>
+                <span class="num-lbl">가상 메모리 (Swap)</span>
+                <span class="num-val" id="mem-grid-swap" style="font-size: 12px;">0.0 GB</span>
               </div>
-              <div class="progress-track" style="height: 5px; margin-top: 4px;">
-                <div class="progress-fill" id="mem-grid-swap-bar" style="width: 0%; background: #8e44ad;"></div>
+              <div class="progress-track" style="height: 4px; margin-top: 4px;">
+                <div class="progress-fill" id="mem-grid-swap-bar" style="width: 0%; background: var(--purple);"></div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 3. GPU 카드 (NVIDIA GeForce, AMD Radeon, Intel Arc 지원) -->
-        <div class="card zoom-card" id="card-metric-gpu" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 전체 화면 상세 모니터링 열기">
+        <!-- 3. GPU 카드 -->
+        <div class="card zoom-card" id="card-metric-gpu" ondblclick="openDetailView('gpu')" title="더블클릭하여 GPU 상세 모니터링 열기">
           <div class="card-header">
-            <div class="card-title">🎛️ GPU</div>
+            <div class="card-title">GPU</div>
             <span class="metric-sub" id="gpu-vram-detail">VRAM 0 / 0 GB</span>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
-            <div class="metric-big" id="gpu-percent" style="color: var(--orange);">0.0%</div>
+            <div class="metric-big" id="gpu-percent">0.0%</div>
           </div>
           <div class="progress-track" title="GPU 점유율">
-            <div class="progress-fill" id="gpu-bar" style="width: 0%; background: linear-gradient(90deg, #ff7b00, #e53935);"></div>
+            <div class="progress-fill" id="gpu-bar" style="width: 0%; background: var(--orange);"></div>
           </div>
           <canvas id="gpu-canvas" class="chart-canvas" width="320" height="80"></canvas>
           <div class="stat-pills">
-            <span class="stat-pill" id="gpu-power-pill">⚡ 0.0 W</span>
-            <span class="stat-pill" id="gpu-clock-pill">⏱️ 0 MHz</span>
+            <span class="stat-pill" id="gpu-power-pill">0.0 W</span>
+            <span class="stat-pill" id="gpu-clock-pill">0 MHz</span>
             <span class="stat-pill" id="gpu-vram-pct-pill">VRAM 0%</span>
           </div>
           <div class="metric-num-grid" id="gpu-num-grid">
             <div class="num-cell">
-              <span class="num-lbl">GPU 코어 온도</span>
-              <span class="num-val" id="gpu-grid-temp" style="color: var(--neon-green);">0°C</span>
+              <span class="num-lbl">코어 온도</span>
+              <span class="num-val" id="gpu-grid-temp" style="color: var(--green);">0°C</span>
             </div>
             <div class="num-cell">
               <span class="num-lbl">실시간 전력</span>
@@ -8765,38 +8947,38 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             <div class="num-cell full-span">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span class="num-lbl">VRAM 비디오 메모리</span>
-                <span class="num-val" id="gpu-grid-vram-text" style="font-size: 11.5px;">0.00 / 0.0 GB (0%)</span>
+                <span class="num-val" id="gpu-grid-vram-text" style="font-size: 12px;">0.00 / 0.0 GB (0%)</span>
               </div>
-              <div class="progress-track" style="height: 5px; margin-top: 4px;">
-                <div class="progress-fill" id="gpu-grid-vram-bar" style="width: 0%; background: linear-gradient(90deg, #ff7b00, #e53935);"></div>
+              <div class="progress-track" style="height: 4px; margin-top: 4px;">
+                <div class="progress-fill" id="gpu-grid-vram-bar" style="width: 0%; background: var(--orange);"></div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- 4. 게임 실시간 FPS 모니터 카드 -->
-        <div class="card zoom-card" id="card-metric-fps" ondblclick="openDetailView('fps')" title="더블클릭하여 FPS 전체 화면 상세 모니터링 열기">
+        <div class="card zoom-card" id="card-metric-fps" ondblclick="openDetailView('fps')" title="더블클릭하여 FPS 상세 모니터링 열기">
           <div class="card-header">
-            <div class="card-title">🎮 게임 FPS</div>
-            <span class="badge" id="fps-mode-badge" style="font-variant-numeric: tabular-nums;">IDLE</span>
+            <div class="card-title">게임 FPS</div>
+            <span class="badge" id="fps-mode-badge">IDLE</span>
           </div>
           <div style="display: flex; align-items: baseline; justify-content: space-between;">
-            <div class="metric-big" id="fps-value" style="color: var(--neon-green);">0 FPS</div>
+            <div class="metric-big" id="fps-value">0 FPS</div>
             <div class="metric-sub" id="fps-frametime">대기 중</div>
           </div>
           <div class="progress-track">
-            <div class="progress-fill" id="fps-bar" style="width: 0%; background: linear-gradient(90deg, #23a55a, #00c875);"></div>
+            <div class="progress-fill" id="fps-bar" style="width: 0%; background: var(--green);"></div>
           </div>
           <canvas id="fps-canvas" class="chart-canvas" width="320" height="80"></canvas>
           <div class="stat-pills" style="justify-content: space-between; align-items: center;">
-            <span class="stat-pill" id="fps-low-pill">1% Low: 0 FPS</span>
-            <span class="stat-pill" id="fps-playtime-pill" style="font-variant-numeric: tabular-nums;">⏱️ 00:00:00</span>
-            <span class="stat-pill" id="fps-target-name" style="max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">실행 중인 게임 없음</span>
+            <span class="stat-pill" id="fps-low-pill">1% Low 0</span>
+            <span class="stat-pill" id="fps-playtime-pill">00:00:00</span>
+            <span class="stat-pill" id="fps-target-name" style="max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">게임 없음</span>
           </div>
           <div class="metric-num-grid" id="fps-num-grid">
             <div class="num-cell">
               <span class="num-lbl">1% Low FPS</span>
-              <span class="num-val" id="fps-grid-low" style="color: var(--neon-green);">0 FPS</span>
+              <span class="num-val" id="fps-grid-low" style="color: var(--green);">0 FPS</span>
             </div>
             <div class="num-cell">
               <span class="num-lbl">프레임 타임</span>
@@ -8807,65 +8989,67 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
               <span class="num-val" id="fps-grid-avg">0 FPS</span>
             </div>
             <div class="num-cell">
-              <span class="num-lbl">최근 피크 FPS</span>
+              <span class="num-lbl">피크 FPS</span>
               <span class="num-val" id="fps-grid-max">0 FPS</span>
             </div>
             <div class="num-cell full-span">
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="num-lbl">실행 게임 및 세션</span>
-                <span class="num-val" id="fps-grid-playtime" style="font-size: 11.5px; color: var(--brand);">⏱️ 00:00:00</span>
+                <span class="num-lbl">실행 게임 세션</span>
+                <span class="num-val" id="fps-grid-playtime" style="font-size: 12px; color: var(--brand);">00:00:00</span>
               </div>
-              <div class="num-val" id="fps-grid-gamename" style="font-size: 11px; margin-top: 3px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">실행 중인 게임 없음</div>
+              <div class="num-val" id="fps-grid-gamename" style="font-size: 11px; margin-top: 4px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">실행 중인 게임 없음</div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 통합 대시보드 전용: 실시간 네트워크(다운로드/업로드/핑) & 디스크(I/O/용량) 한눈에 보기 바 -->
-      <section class="card" id="sec-netdisk-strip" onclick="switchTab('netdisk')" style="padding: 9px 14px; flex-shrink: 0; cursor: pointer;" title="클릭하여 실시간 네트워크(속도/핑) & 디스크(용량/I/O) 전용 모니터 열기">
-        <div class="strip-chart-view" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-          <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0;">
-            <span style="font-size: 12px; font-weight: 800; color: var(--cyan); display: inline-flex; align-items: center; gap: 5px;">
-              🌐 <span id="strip-net-down">↓ 0.00 MB/s</span>
+      <!-- 통합 대시보드 전용: 실시간 네트워크 & 디스크 요약 바 -->
+      <section class="card" id="sec-netdisk-strip" onclick="switchTab('netdisk')" style="padding: 12px 20px; flex-shrink: 0; cursor: pointer;" title="네트워크 · 디스크 상세 모니터 열기">
+        <div class="strip-chart-view" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; min-width: 0; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums;">
+            <span style="color: var(--text-normal); display: inline-flex; align-items: center; gap: 6px;">
+              <span style="color: var(--text-muted); font-family: var(--font-sans);">다운로드</span>
+              <span id="strip-net-down">↓ 0.00 MB/s</span>
             </span>
-            <span style="font-size: 12px; font-weight: 800; color: var(--brand); display: inline-flex; align-items: center; gap: 5px;">
-              📤 <span id="strip-net-up">↑ 0.00 MB/s</span>
+            <span style="color: var(--text-normal); display: inline-flex; align-items: center; gap: 6px;">
+              <span style="color: var(--text-muted); font-family: var(--font-sans);">업로드</span>
+              <span id="strip-net-up">↑ 0.00 MB/s</span>
             </span>
-            <span style="font-size: 12px; font-weight: 800; color: var(--neon-green); display: inline-flex; align-items: center; gap: 5px;" id="strip-ping-wrap">
-              📡 <span id="strip-net-ping">Ping 0.0 ms</span>
+            <span style="color: var(--green); display: inline-flex; align-items: center; gap: 6px;" id="strip-ping-wrap">
+              <span id="strip-net-ping">Ping 0.0 ms</span>
             </span>
-            <span style="font-size: 12px; font-weight: 700; color: var(--orange); display: inline-flex; align-items: center; gap: 5px;">
-              💽 <span id="strip-disk-io">디스크 R 0.00 / W 0.00 MB/s</span>
+            <span style="color: var(--text-secondary); display: inline-flex; align-items: center; gap: 6px;">
+              <span id="strip-disk-io">디스크 R 0.00 / W 0.00 MB/s</span>
             </span>
-            <span style="font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums;" id="strip-disk-summary">
+            <span style="color: var(--text-muted);" id="strip-disk-summary">
               드라이브 스캔 중...
             </span>
           </div>
-          <span class="badge" style="color: var(--brand);">네트워크·디스크 상세 보기 ➔</span>
+          <span class="badge" style="color: var(--text-secondary);">네트워크 · 디스크 상세 →</span>
         </div>
         <div class="strip-grid-view" style="display: none; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;">
           <div class="num-cell">
-            <span class="num-lbl">🌐 다운로드</span>
-            <span class="num-val" id="strip-grid-down" style="color: var(--cyan);">0.00 MB/s</span>
+            <span class="num-lbl">다운로드</span>
+            <span class="num-val" id="strip-grid-down">0.00 MB/s</span>
             <span class="num-sub" id="strip-grid-down-sub">0.0 Mbps</span>
           </div>
           <div class="num-cell">
-            <span class="num-lbl">📤 업로드</span>
-            <span class="num-val" id="strip-grid-up" style="color: var(--brand);">0.00 MB/s</span>
+            <span class="num-lbl">업로드</span>
+            <span class="num-val" id="strip-grid-up">0.00 MB/s</span>
             <span class="num-sub" id="strip-grid-up-sub">0.0 Mbps</span>
           </div>
           <div class="num-cell">
-            <span class="num-lbl">📡 게임 서버 핑</span>
-            <span class="num-val" id="strip-grid-ping" style="color: var(--neon-green);">0.0 ms</span>
+            <span class="num-lbl">네트워크 핑</span>
+            <span class="num-val" id="strip-grid-ping" style="color: var(--green);">0.0 ms</span>
             <span class="num-sub" id="strip-grid-ping-sub">Jitter 0.0 ms</span>
           </div>
           <div class="num-cell">
-            <span class="num-lbl">💽 디스크 I/O</span>
-            <span class="num-val" id="strip-grid-disk-io" style="color: var(--orange);">0.00 MB/s</span>
+            <span class="num-lbl">디스크 I/O</span>
+            <span class="num-val" id="strip-grid-disk-io">0.00 MB/s</span>
             <span class="num-sub" id="strip-grid-disk-sub">R 0.00 / W 0.00</span>
           </div>
           <div class="num-cell">
-            <span class="num-lbl">💾 드라이브 볼륨</span>
+            <span class="num-lbl">드라이브 볼륨</span>
             <span class="num-val" id="strip-grid-drives" style="font-size: 11px;">스캔 중...</span>
             <span class="num-sub" id="strip-grid-drives-sub">여유 공간</span>
           </div>
@@ -8875,7 +9059,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 코어별 상세 바 (하드웨어 상세 탭 전용) -->
       <section class="card hidden" id="sec-cores">
         <div class="card-header">
-          <div class="card-title">🧩 논리 코어별 실시간 부하</div>
+          <div class="card-title">논리 코어별 실시간 부하</div>
         </div>
         <div class="cores-grid" id="cores-container"></div>
       </section>
@@ -8885,13 +9069,13 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 좌측: 상위 프로세스 목록 -->
         <div class="card" id="card-processes" style="min-height: 0; height: 100%;">
           <div class="card-header">
-            <div class="card-title">📊 실시간 상위 프로세스</div>
-            <div style="display: flex; gap: 6px; align-items: center;">
+            <div class="card-title">실시간 상위 프로세스</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
               <select id="game-select" class="select-input" onchange="onSelectTargetProcess()" title="FPS 모니터링 대상 선택">
-                <option value="auto">🎯 게임 자동 감지</option>
+                <option value="auto">게임 자동 감지</option>
               </select>
-              <button class="btn secondary" onclick="openGameScanModal()" title="실행 중인 게임 프로세스 자동 탐색 및 수동 등록" style="white-space:nowrap; padding: 4px 10px; font-size: 12px;">🔍 게임 탐색</button>
-              <input type="text" id="proc-search" class="search-input" placeholder="프로세스 검색..." oninput="renderProcesses()">
+              <button class="btn secondary" onclick="openGameScanModal()" title="실행 중인 게임 프로세스 탐색 및 등록">게임 탐색</button>
+              <input type="text" id="proc-search" class="search-input" placeholder="프로세스 검색" oninput="renderProcesses()">
             </div>
           </div>
           <div class="table-wrap">
@@ -8910,22 +9094,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 우측: 뽀모도로 타이머 & 할 일 목록 -->
-        <div style="display: flex; flex-direction: column; gap: 14px; min-height: 0; height: 100%;" id="card-productivity">
+        <div style="display: flex; flex-direction: column; gap: 16px; min-height: 0; height: 100%;" id="card-productivity">
           <!-- 뽀모도로 카드 -->
           <div class="card" style="flex-shrink: 0;">
             <div class="card-header">
-              <div class="card-title" id="pomo-mode-title">🍅 뽀모도로 집중 타이머 (25분)</div>
+              <div class="card-title" id="pomo-mode-title">집중 타이머 (25분)</div>
               <span class="badge" id="pomo-status-badge">대기 중</span>
             </div>
             <div class="pomo-box">
               <div>
                 <div class="pomo-time" id="pomo-time-display">25:00</div>
-                <div class="metric-sub" id="pomo-sub-text">집중 세션을 시작해 보세요!</div>
+                <div class="metric-sub" id="pomo-sub-text">집중 세션 대기 중</div>
               </div>
               <div class="btn-group">
                 <button class="btn" id="pomo-start-btn" onclick="togglePomodoro()">시작</button>
                 <button class="btn secondary" onclick="resetPomodoro()">리셋</button>
-                <button class="btn secondary" onclick="switchPomodoroMode()">집중/휴식 전환</button>
+                <button class="btn secondary" onclick="switchPomodoroMode()">집중/휴식</button>
               </div>
             </div>
             <div class="progress-track">
@@ -8936,11 +9120,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 할 일 (Todo) 카드 -->
           <div class="card" style="flex: 1 1 0; min-height: 0;">
             <div class="card-header">
-              <div class="card-title">📝 오늘 할 일 보드 (Todo)</div>
+              <div class="card-title">오늘 할 일</div>
               <span class="metric-sub" id="todo-counter">0개 완료</span>
             </div>
             <div class="todo-input-row">
-              <input type="text" id="todo-input" class="todo-input" placeholder="새로운 할 일을 입력하고 Enter를 누르세요..." onkeydown="if(event.key==='Enter') addTodo()">
+              <input type="text" id="todo-input" class="todo-input" placeholder="할 일 추가 (Enter)" onkeydown="if(event.key==='Enter') addTodo()">
               <button class="btn" onclick="addTodo()">추가</button>
             </div>
             <div class="todo-list" id="todo-list"></div>
@@ -8953,49 +9137,49 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <div class="grid-4">
           <div class="card">
             <div class="card-header">
-              <div class="card-title">🎮 현재 실행 게임</div>
+              <div class="card-title">현재 실행 게임</div>
               <span class="badge" id="gl-active-badge">IDLE</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="gl-active-timer" style="color: var(--neon-green);">00:00:00</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="gl-active-timer">00:00:00</div>
               <div class="metric-sub" id="gl-active-fps">대기 중</div>
             </div>
-            <div class="metric-sub" id="gl-active-name" style="font-weight: 700; color: var(--text-normal);">실행 중인 게임 없음</div>
+            <div class="metric-sub" id="gl-active-name" style="font-weight: 500; color: var(--text-normal);">실행 중인 게임 없음</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">🏆 최다 플레이 게임</div>
+              <div class="card-title">최다 플레이 게임</div>
               <span class="badge" id="gl-top-share-badge">점유율 0%</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="gl-top-game-name" style="color: #f59f00;">기록 없음</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="gl-top-game-name">기록 없음</div>
             </div>
-            <div class="metric-sub" id="gl-top-game-time" style="font-variant-numeric: tabular-nums;">누적 00:00:00 (0회)</div>
+            <div class="metric-sub" id="gl-top-game-time">누적 00:00:00 (0회)</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">⏱️ 오늘 / 7일 플레이</div>
-              <span class="badge">시:분:초</span>
+              <div class="card-title">오늘 / 7일 플레이</div>
+              <span class="badge">HH:MM:SS</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="gl-today-time" style="color: var(--brand);">00:00:00</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="gl-today-time">00:00:00</div>
               <div class="metric-sub">오늘 누적</div>
             </div>
-            <div class="metric-sub" id="gl-week-time" style="font-variant-numeric: tabular-nums;">최근 7일: 00:00:00</div>
+            <div class="metric-sub" id="gl-week-time">최근 7일: 00:00:00</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">📚 전체 누적 로그</div>
+              <div class="card-title">전체 누적 기록</div>
               <span class="badge" id="gl-total-games-badge">0개 게임</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="gl-total-time" style="color: var(--purple);">00:00:00</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="gl-total-time">00:00:00</div>
               <div class="metric-sub" id="gl-total-sessions">총 0회</div>
             </div>
-            <div class="metric-sub">logs/game_play_log.tsv</div>
+            <div class="metric-sub" style="font-family: var(--font-mono);">logs/game_play_log.tsv</div>
           </div>
         </div>
 
@@ -9003,9 +9187,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 좌측: 최근 많이 플레이한 게임 랭킹 보드 -->
           <div class="card" style="min-height: 0; height: 100%;">
             <div class="card-header">
-              <div class="card-title">🔥 최근 가장 많이 플레이한 게임 랭킹</div>
+              <div class="card-title">플레이 시간 순위</div>
               <div class="filter-pills">
-                <button class="filter-pill active" id="gl-period-7d" onclick="setGameLogPeriod('7d')">최근 7일</button>
+                <button class="filter-pill active" id="gl-period-7d" onclick="setGameLogPeriod('7d')">7일</button>
                 <button class="filter-pill" id="gl-period-30d" onclick="setGameLogPeriod('30d')">30일</button>
                 <button class="filter-pill" id="gl-period-today" onclick="setGameLogPeriod('today')">오늘</button>
                 <button class="filter-pill" id="gl-period-all" onclick="setGameLogPeriod('all')">전체</button>
@@ -9017,23 +9201,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 우측: 상세 세션 히스토리 로그 테이블 -->
           <div class="card" style="min-height: 0; height: 100%;">
             <div class="card-header">
-              <div class="card-title">🕒 게임 플레이 세션 히스토리 (시:분:초 로그)</div>
-              <div style="display: flex; gap: 6px; align-items: center;">
-                <input type="text" id="gamelog-search" class="search-input" placeholder="게임 이름 검색..." oninput="renderGameLogDashboard()" style="width: 150px;">
-                <button class="btn secondary" onclick="openGameScanModal()" title="실행 중인 게임 프로세스 자동 탐색 및 수동 등록">🔍 게임 탐색</button>
-                <button class="btn secondary" onclick="openLogsFolder()" title="게임 플레이 로그 파일(logs/game_play_log.tsv)이 저장된 폴더 열기">📂 폴더</button>
-                <button class="btn secondary" onclick="clearAllGameLogs()" title="저장된 모든 게임 플레이 로그 기록 초기화">🗑️ 초기화</button>
+              <div class="card-title">세션 기록</div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="gamelog-search" class="search-input" placeholder="게임 검색" oninput="renderGameLogDashboard()" style="width: 148px;">
+                <button class="btn secondary" onclick="openGameScanModal()" title="실행 중인 게임 프로세스 탐색 및 등록">게임 탐색</button>
+                <button class="btn secondary" onclick="openLogsFolder()" title="로그 저장 폴더 열기">폴더</button>
+                <button class="btn secondary" onclick="clearAllGameLogs()" title="저장된 모든 게임 기록 초기화">초기화</button>
               </div>
             </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th style="cursor:default">플레이 일시 (시작 ~ 종료)</th>
+                    <th style="cursor:default">플레이 일시</th>
                     <th style="cursor:default">게임 이름</th>
-                    <th style="cursor:default">실행 시간 (시:분:초)</th>
+                    <th style="cursor:default">실행 시간</th>
                     <th style="cursor:default">평균 FPS / 1% Low</th>
-                    <th style="cursor:default">최고 GPU 온도 / 피크 부하</th>
+                    <th style="cursor:default">최고 GPU 온도 / 부하</th>
                     <th style="cursor:default; text-align:right;">관리</th>
                   </tr>
                 </thead>
@@ -9051,50 +9235,50 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 1. 실시간 다운로드 속도 -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title">🌐 실시간 다운로드</div>
+              <div class="card-title">다운로드 속도</div>
               <span class="badge" id="nd-iface-badge">Ethernet</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="nd-rx-mbs" style="color: var(--cyan);">0.00 MB/s</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="nd-rx-mbs">0.00 MB/s</div>
               <div class="metric-sub" id="nd-rx-mbps">0.0 Mbps</div>
             </div>
             <canvas id="nd-rx-canvas" class="chart-canvas" width="320" height="72"></canvas>
             <div class="stat-pills" style="justify-content: space-between;">
-              <span class="stat-pill" id="nd-rx-peak-pill">최고: 0.00 MB/s</span>
-              <span class="stat-pill" id="nd-rx-total-pill">누적 수신: 0.00 GB</span>
+              <span class="stat-pill" id="nd-rx-peak-pill">최고 0.00 MB/s</span>
+              <span class="stat-pill" id="nd-rx-total-pill">수신 0.00 GB</span>
             </div>
           </div>
 
           <!-- 2. 실시간 업로드 속도 -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title">📤 실시간 업로드</div>
+              <div class="card-title">업로드 속도</div>
               <span class="badge">TX Stream</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="nd-tx-mbs" style="color: var(--brand);">0.00 MB/s</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="nd-tx-mbs">0.00 MB/s</div>
               <div class="metric-sub" id="nd-tx-mbps">0.0 Mbps</div>
             </div>
             <canvas id="nd-tx-canvas" class="chart-canvas" width="320" height="72"></canvas>
             <div class="stat-pills" style="justify-content: space-between;">
-              <span class="stat-pill" id="nd-tx-peak-pill">최고: 0.00 MB/s</span>
-              <span class="stat-pill" id="nd-tx-total-pill">누적 송신: 0.00 GB</span>
+              <span class="stat-pill" id="nd-tx-peak-pill">최고 0.00 MB/s</span>
+              <span class="stat-pill" id="nd-tx-total-pill">송신 0.00 GB</span>
             </div>
           </div>
 
           <!-- 3. 실시간 네트워크 핑 (Ping & Jitter) -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title" id="nd-ping-card-title">📡 네트워크 핑 (Ping)</div>
-              <span class="badge" id="nd-ping-status-badge" style="color: var(--neon-green);">쾌적 🟢</span>
+              <div class="card-title" id="nd-ping-card-title">네트워크 핑</div>
+              <span class="badge" id="nd-ping-status-badge" style="color: var(--green);">양호</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="nd-ping-ms" style="color: var(--neon-green);">0.0 ms</div>
-              <div class="metric-sub" id="nd-jitter-ms">Jitter: 0.0 ms</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="nd-ping-ms">0.0 ms</div>
+              <div class="metric-sub" id="nd-jitter-ms">Jitter 0.0 ms</div>
             </div>
             <canvas id="nd-ping-canvas" class="chart-canvas" width="320" height="72"></canvas>
             <div class="stat-pills" style="justify-content: space-between;">
-              <span class="stat-pill" id="nd-ping-avg-pill">60초 평균: 0.0 ms</span>
+              <span class="stat-pill" id="nd-ping-avg-pill">60초 평균 0.0 ms</span>
               <span class="stat-pill" id="nd-ping-target-pill">1.1.1.1</span>
             </div>
           </div>
@@ -9102,17 +9286,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 4. 실시간 디스크 I/O (Read / Write) -->
           <div class="card">
             <div class="card-header">
-              <div class="card-title">💽 실시간 디스크 I/O</div>
+              <div class="card-title">디스크 I/O</div>
               <span class="badge" id="nd-disk-count-badge">0개 드라이브</span>
             </div>
-            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0;">
-              <div class="metric-big" id="nd-disk-total-mbs" style="color: var(--orange);">0.00 MB/s</div>
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
+              <div class="metric-big" id="nd-disk-total-mbs">0.00 MB/s</div>
               <div class="metric-sub" id="nd-disk-rw-sub">R 0.0 / W 0.0</div>
             </div>
             <canvas id="nd-disk-canvas" class="chart-canvas" width="320" height="72"></canvas>
             <div class="stat-pills" style="justify-content: space-between;">
-              <span class="stat-pill" id="nd-disk-read-pill" style="color: var(--neon-green);">읽기(R): 0.00 MB/s</span>
-              <span class="stat-pill" id="nd-disk-write-pill" style="color: var(--orange);">쓰기(W): 0.00 MB/s</span>
+              <span class="stat-pill" id="nd-disk-read-pill">읽기 0.00 MB/s</span>
+              <span class="stat-pill" id="nd-disk-write-pill">쓰기 0.00 MB/s</span>
             </div>
           </div>
         </div>
@@ -9122,8 +9306,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 좌측: 드라이브별 용량 및 상태 -->
           <div class="card" style="min-height: 0; height: 100%;">
             <div class="card-header">
-              <div class="card-title">💽 로컬 디스크 드라이브 용량 및 여유 공간</div>
-              <span class="badge" id="nd-total-storage-badge">전체 용량 계산 중...</span>
+              <div class="card-title">로컬 드라이브 용량</div>
+              <span class="badge" id="nd-total-storage-badge">계산 중...</span>
             </div>
             <div class="rank-list" id="nd-drives-list"></div>
           </div>
@@ -9131,8 +9315,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 우측: 실시간 디스크 I/O 상위 프로세스 & 네트워크 어댑터 상세 -->
           <div class="card" style="min-height: 0; height: 100%;">
             <div class="card-header">
-              <div class="card-title">🔥 실시간 디스크 I/O 상위 프로세스 & 네트워크 어댑터</div>
-              <span class="badge">실시간 Read / Write 추적</span>
+              <div class="card-title">디스크 I/O 상위 프로세스 및 어댑터</div>
+              <span class="badge">실시간 추적</span>
             </div>
             <div id="nd-ifaces-summary" style="display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0;"></div>
             <div class="table-wrap">
@@ -9141,8 +9325,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                   <tr>
                     <th style="cursor:default">PID</th>
                     <th style="cursor:default">프로세스 이름</th>
-                    <th style="cursor:default">디스크 읽기 (MB/s)</th>
-                    <th style="cursor:default">디스크 쓰기 (MB/s)</th>
+                    <th style="cursor:default">읽기 (MB/s)</th>
+                    <th style="cursor:default">쓰기 (MB/s)</th>
                     <th style="cursor:default">CPU / RAM</th>
                   </tr>
                 </thead>
@@ -9159,28 +9343,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="detail-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-wrap">
-        <span id="detail-title" class="detail-title">⚡ CPU 상세 모니터링</span>
-        <span id="detail-sub" class="detail-sub">실시간 60초 정밀 분석</span>
+        <span id="detail-title" class="detail-title">CPU 상세 모니터링</span>
+        <span id="detail-sub" class="detail-sub">실시간 60초 정밀 계측</span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
-        <button class="btn secondary" id="btn-detail-view-mode" onclick="toggleDashboardViewMode()" title="차트 그래프 화면과 정밀 수치 그리드 화면을 전환합니다">
-          <span id="btn-detail-view-mode-icon">📊</span> <span id="btn-detail-view-mode-text">차트형</span>
+        <button class="btn secondary" id="btn-detail-view-mode" onclick="toggleDashboardViewMode()" title="차트 화면과 수치 그리드 화면 전환">
+          <span id="btn-detail-view-mode-icon" class="hidden"></span>
+          <span id="btn-detail-view-mode-text">차트형</span>
         </button>
-        <button class="btn ghost" id="dt-btn-cpu" onclick="openDetailView('cpu')">⚡ CPU</button>
-        <button class="btn ghost" id="dt-btn-mem" onclick="openDetailView('mem')">💾 RAM</button>
-        <button class="btn ghost" id="dt-btn-gpu" onclick="openDetailView('gpu')">🎛️ GPU</button>
-        <button class="btn ghost" id="dt-btn-fps" onclick="openDetailView('fps')">🎮 FPS</button>
-        <button class="btn" onclick="closeDetailView()">↙ 대시보드로 돌아가기 (Esc / 더블클릭)</button>
+        <button class="btn ghost" id="dt-btn-cpu" onclick="openDetailView('cpu')">CPU</button>
+        <button class="btn ghost" id="dt-btn-mem" onclick="openDetailView('mem')">RAM</button>
+        <button class="btn ghost" id="dt-btn-gpu" onclick="openDetailView('gpu')">GPU</button>
+        <button class="btn ghost" id="dt-btn-fps" onclick="openDetailView('fps')">FPS</button>
+        <button class="btn" onclick="closeDetailView()">대시보드로 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
-    <div class="detail-body" ondblclick="closeDetailView()" title="빈 영역을 더블 클릭하거나 Esc 키를 누르면 원래 화면으로 돌아갑니다">
+    <div class="detail-body" ondblclick="closeDetailView()" title="빈 영역 더블클릭 또는 Esc로 닫기">
       <div id="detail-kpi-grid" class="kpi-grid"></div>
       <div class="detail-chart-wrap" id="detail-chart-wrap">
         <div class="detail-chart-head">
-          <span id="detail-chart-title" style="font-size: 13px; font-weight: 700; color: var(--text-header);">실시간 60초 추이 그래프</span>
-          <span id="detail-chart-scale" class="badge">Scale: 0 ~ 100%</span>
+          <span id="detail-chart-title" style="font-size: 13px; font-weight: 500; color: var(--text-header);">실시간 60초 추이 그래프</span>
+          <span id="detail-chart-scale" class="badge">Scale 0 ~ 100%</span>
         </div>
-        <canvas id="detail-main-canvas" class="detail-canvas" width="1100" height="270"></canvas>
+        <canvas id="detail-main-canvas" class="detail-canvas" width="1100" height="280"></canvas>
       </div>
       <div id="detail-grid-panel" class="detail-grid-panel"></div>
       <div id="detail-extra-panel" class="card" style="gap: 12px;"></div>
@@ -9191,25 +9376,25 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="record-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-wrap">
-        <span class="detail-title">📊 모니터링 녹화 정밀 분석 리포트</span>
-        <span id="rec-meta-sub" class="detail-sub">녹화 버튼을 눌러 구간 데이터를 수집하거나 기존 CSV 파일을 불러와 분석할 수 있습니다</span>
+        <span class="detail-title">녹화 정밀 분석 리포트</span>
+        <span id="rec-meta-sub" class="detail-sub">실시간 구간을 녹화하거나 저장된 CSV 파일을 불러와 분석합니다</span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
         <button id="rec-modal-btn" class="rec-btn" onclick="toggleRecording()">
           <span class="rec-dot"></span>
           <span id="rec-modal-btn-text">새 녹화 시작</span>
         </button>
-        <button class="btn secondary" onclick="openLogsFolder()" title="저장된 CSV 파일이 있는 logs 폴더를 탐색기에서 엽니다">📂 저장 폴더 열기</button>
-        <button class="btn secondary" onclick="downloadCurrentCsv()" title="현재 분석 중인 녹화 데이터를 CSV 파일로 다운로드합니다">💾 CSV 다운로드</button>
-        <button class="btn secondary" onclick="document.getElementById('csv-file-input').click()" title="이전에 저장된 모니터링 CSV 파일을 불러와 분석합니다">📥 CSV 불러오기</button>
+        <button class="btn secondary" onclick="openLogsFolder()" title="CSV 저장 폴더 열기">폴더 열기</button>
+        <button class="btn secondary" onclick="downloadCurrentCsv()" title="현재 분석 데이터를 CSV로 다운로드">CSV 저장</button>
+        <button class="btn secondary" onclick="document.getElementById('csv-file-input').click()" title="저장된 CSV 파일 불러오기">CSV 불러오기</button>
         <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="onLoadCsvFile(event)">
-        <button class="btn" onclick="closeRecordAnalysis()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <button class="btn" onclick="closeRecordAnalysis()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
     <div class="detail-body">
       <!-- 저장된 파일 경로 안내 바 -->
-      <div id="rec-saved-banner" class="scrub-inspector" style="border-left: 4px solid var(--green);">
-        <span id="rec-saved-path-text">💡 상단 <strong>[모니터링 녹화]</strong>를 누르면 실시간 수집이 시작되고, <strong>[정지]</strong>를 누르면 자동으로 <code>logs/</code> 폴더에 CSV 파일이 저장되며 이 분석 리포트가 갱신됩니다.</span>
+      <div id="rec-saved-banner" class="scrub-inspector" style="border-left: 3px solid var(--green);">
+        <span id="rec-saved-path-text">상단 <strong>녹화 시작</strong>을 누르면 실시간 수집이 시작되며, 정지 시 <code>logs/</code> 폴더에 CSV가 자동 저장됩니다</span>
         <span id="rec-sample-badge" class="badge">샘플 0개</span>
       </div>
 
@@ -9220,37 +9405,37 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <div class="detail-chart-wrap">
         <div class="detail-chart-head">
           <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size: 13px; font-weight: 700; color: var(--text-header);">📈 녹화 전 구간 멀티 타임라인 비교 그래프 (마우스를 올려 시점별 상세 수치 확인)</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--text-header);">구간 멀티 타임라인 비교</span>
           </div>
           <div class="series-toggles">
             <span class="series-pill active" id="sp-cpu" onclick="toggleRecSeries('cpu')"><span style="color:var(--brand)">●</span> CPU (%)</span>
             <span class="series-pill active" id="sp-mem" onclick="toggleRecSeries('mem')"><span style="color:var(--purple)">●</span> RAM (%)</span>
             <span class="series-pill active" id="sp-gpu" onclick="toggleRecSeries('gpu')"><span style="color:var(--orange)">●</span> GPU (%)</span>
             <span class="series-pill active" id="sp-temp" onclick="toggleRecSeries('temp')"><span style="color:var(--red)">●</span> GPU 온도 (°C)</span>
-            <span class="series-pill active" id="sp-fps" onclick="toggleRecSeries('fps')"><span style="color:var(--neon-green)">●</span> 게임 FPS</span>
+            <span class="series-pill active" id="sp-fps" onclick="toggleRecSeries('fps')"><span style="color:var(--green)">●</span> 게임 FPS</span>
           </div>
         </div>
-        <canvas id="rec-timeline-canvas" class="detail-canvas" width="1100" height="250" onmousemove="onScrubTimeline(event)" onmouseleave="onLeaveTimeline()"></canvas>
+        <canvas id="rec-timeline-canvas" class="detail-canvas" width="1100" height="260" onmousemove="onScrubTimeline(event)" onmouseleave="onLeaveTimeline()"></canvas>
         <div id="rec-scrub-info" class="scrub-inspector">
-          <span>🖱️ 그래프 위에 마우스를 움직이면 해당 시점의 정확한 하드웨어 수치와 상위 점유 프로세스를 확인할 수 있습니다.</span>
+          <span>그래프 위에 마우스를 올리면 해당 시점의 하드웨어 수치와 상위 점유 프로세스를 확인할 수 있습니다</span>
         </div>
       </div>
 
       <!-- 구간 정밀 통계 비교 테이블 -->
-      <div class="card" style="gap: 10px;">
+      <div class="card" style="gap: 12px;">
         <div class="card-header">
-          <div class="card-title">📋 녹화 구간 항목별 정밀 통계 요약 (평균 / 최고 Peak / 최저 Min / 피크 발생 시각)</div>
+          <div class="card-title">항목별 구간 통계 (평균 / 최고 / 최저)</div>
         </div>
         <div class="table-wrap" style="max-height: 280px;">
           <table>
             <thead>
               <tr>
                 <th style="cursor:default">모니터링 항목</th>
-                <th style="cursor:default">구간 평균 (Avg)</th>
-                <th style="cursor:default">구간 최고 (Peak)</th>
-                <th style="cursor:default">최고치 발생 시각</th>
-                <th style="cursor:default">구간 최저 (Min)</th>
-                <th style="cursor:default">상태 및 안정성 평가</th>
+                <th style="cursor:default">평균 (Avg)</th>
+                <th style="cursor:default">최고 (Peak)</th>
+                <th style="cursor:default">피크 시각</th>
+                <th style="cursor:default">최저 (Min)</th>
+                <th style="cursor:default">상태 평가</th>
               </tr>
             </thead>
             <tbody id="rec-stats-tbody"></tbody>
@@ -9264,33 +9449,33 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="alert-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">🔔 과열·과부하 & 장시간 게임 플레이 스마트 경고 설정</div>
-        <div class="detail-sub">GPU 온도 • CPU/RAM/VRAM 과부하 • 연속 게임 플레이 시간 임계치 맞춤형 감시 및 실시간 경고 로그</div>
+        <div class="detail-title">경고 알림 설정</div>
+        <div class="detail-sub">GPU 온도 · CPU/RAM/VRAM 과부하 · 연속 플레이 시간 임계치 감시</div>
       </div>
       <div class="detail-actions">
-        <button class="btn ghost" onclick="playAlertBeep(true)">🔊 경고음 테스트</button>
-        <button class="btn ghost" onclick="testSmartAlert()">🧪 가상 경고 발동 테스트</button>
-        <button class="btn ghost" onclick="resetAlertConfig()">🔄 기본값 복원</button>
-        <button class="btn" onclick="closeAlertSettings()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <button class="btn ghost" onclick="playAlertBeep(true)">경고음 테스트</button>
+        <button class="btn ghost" onclick="testSmartAlert()">가상 경고 테스트</button>
+        <button class="btn ghost" onclick="resetAlertConfig()">기본값 복원</button>
+        <button class="btn" onclick="closeAlertSettings()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
 
     <div class="detail-body">
       <!-- 상단 전역 알림 제어 카드 -->
-      <div class="card" style="padding: 14px 16px;">
+      <div class="card" style="padding: 16px 20px;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-            <span id="alert-global-status-badge" class="badge" style="color: var(--neon-green); font-size: 12px; padding: 5px 10px;">🟢 실시간 스마트 감시 작동 중</span>
-            <span style="font-size: 12px; color: var(--text-muted);">설정한 임계치를 초과하면 상단 경고 배너, 토스트 메시지, 경고 비프음으로 즉시 알려줍니다.</span>
+            <span id="alert-global-status-badge" class="badge" style="color: var(--green); padding: 4px 10px;">실시간 감시 활성</span>
+            <span style="font-size: 13px; color: var(--text-muted);">임계치 초과 시 상단 경고 배너와 알림음으로 안내합니다</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; cursor: pointer; background: var(--bg-tertiary); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer; background: var(--bg-elevated); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">
               <input type="checkbox" id="alert-sound-chk" onchange="onUpdateAlertConfig()" style="accent-color: var(--brand); cursor: pointer;" />
-              🔊 경고 비프음(사운드) 재생
+              경고 비프음 재생
             </label>
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; background: var(--bg-tertiary); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);">
-              <span>⏱️ 재알림 쿨타임:</span>
-              <select id="alert-cooldown-sel" class="proc-select" onchange="onUpdateAlertConfig()" style="padding: 2px 6px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; background: var(--bg-elevated); padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+              <span>재알림 간격</span>
+              <select id="alert-cooldown-sel" class="proc-select" onchange="onUpdateAlertConfig()" style="height: 26px; padding: 0 8px;">
                 <option value="60">1분마다</option>
                 <option value="180">3분마다</option>
                 <option value="300">5분마다</option>
@@ -9307,17 +9492,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 1. GPU 온도 과열 경고 -->
         <div class="alert-rule-card">
           <div class="alert-rule-top">
-            <span class="alert-rule-title">🌡️ GPU 코어 과열 경고</span>
-            <label style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; cursor:pointer;">
-              <input type="checkbox" id="rule-gpu-temp-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 감시 켜기
+            <span class="alert-rule-title">GPU 코어 과열</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="rule-gpu-temp-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 활성
             </label>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <span style="font-size:12px; color:var(--text-muted);">경고 기준 온도</span>
-            <strong id="rule-gpu-temp-label" style="font-size:18px; color:var(--red);">78°C 이상</strong>
+            <span style="font-size:12px; color:var(--text-muted);">기준 온도</span>
+            <strong id="rule-gpu-temp-label" style="font-size:18px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--red);">78°C 이상</strong>
           </div>
           <input type="range" id="rule-gpu-temp-val" class="range-slider" min="60" max="95" step="1" oninput="onUpdateAlertConfig()" />
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums;">
             <span>60°C</span>
             <span id="live-rule-gpu-temp">현재 GPU 온도: --°C</span>
             <span>95°C</span>
@@ -9327,17 +9512,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 2. 시스템 RAM 부족 경고 -->
         <div class="alert-rule-card">
           <div class="alert-rule-top">
-            <span class="alert-rule-title">💾 시스템 RAM 과부하 경고</span>
-            <label style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; cursor:pointer;">
-              <input type="checkbox" id="rule-ram-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 감시 켜기
+            <span class="alert-rule-title">시스템 RAM 과부하</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="rule-ram-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 활성
             </label>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <span style="font-size:12px; color:var(--text-muted);">경고 기준 점유율</span>
-            <strong id="rule-ram-label" style="font-size:18px; color:var(--purple);">90% 이상</strong>
+            <span style="font-size:12px; color:var(--text-muted);">기준 점유율</span>
+            <strong id="rule-ram-label" style="font-size:18px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--text-normal);">90% 이상</strong>
           </div>
           <input type="range" id="rule-ram-val" class="range-slider" min="70" max="98" step="1" oninput="onUpdateAlertConfig()" />
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums;">
             <span>70%</span>
             <span id="live-rule-ram">현재 RAM 점유율: --%</span>
             <span>98%</span>
@@ -9347,17 +9532,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 3. 그래픽 VRAM 포화 경고 -->
         <div class="alert-rule-card">
           <div class="alert-rule-top">
-            <span class="alert-rule-title">🎛️ 그래픽 VRAM 포화 경고</span>
-            <label style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; cursor:pointer;">
-              <input type="checkbox" id="rule-vram-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 감시 켜기
+            <span class="alert-rule-title">그래픽 VRAM 포화</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="rule-vram-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 활성
             </label>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <span style="font-size:12px; color:var(--text-muted);">경고 기준 VRAM 점유율</span>
-            <strong id="rule-vram-label" style="font-size:18px; color:var(--orange);">92% 이상</strong>
+            <span style="font-size:12px; color:var(--text-muted);">기준 VRAM 점유율</span>
+            <strong id="rule-vram-label" style="font-size:18px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--text-normal);">92% 이상</strong>
           </div>
           <input type="range" id="rule-vram-val" class="range-slider" min="70" max="99" step="1" oninput="onUpdateAlertConfig()" />
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums;">
             <span>70%</span>
             <span id="live-rule-vram">현재 VRAM 점유율: --%</span>
             <span>99%</span>
@@ -9367,17 +9552,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 4. CPU 고부하 지속 경고 -->
         <div class="alert-rule-card">
           <div class="alert-rule-top">
-            <span class="alert-rule-title">⚡ CPU 고부하 지속 경고 (5초 연속)</span>
-            <label style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; cursor:pointer;">
-              <input type="checkbox" id="rule-cpu-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 감시 켜기
+            <span class="alert-rule-title">CPU 고부하 지속 (5초 연속)</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="rule-cpu-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 활성
             </label>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <span style="font-size:12px; color:var(--text-muted);">5초 연속 초과 기준</span>
-            <strong id="rule-cpu-label" style="font-size:18px; color:var(--brand);">90% 이상</strong>
+            <strong id="rule-cpu-label" style="font-size:18px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--text-normal);">90% 이상</strong>
           </div>
           <input type="range" id="rule-cpu-val" class="range-slider" min="70" max="99" step="1" oninput="onUpdateAlertConfig()" />
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums;">
             <span>70%</span>
             <span id="live-rule-cpu">현재 CPU 사용률: --%</span>
             <span>99%</span>
@@ -9387,17 +9572,17 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- 5. 장시간 게임 플레이 건강 알림 -->
         <div class="alert-rule-card">
           <div class="alert-rule-top">
-            <span class="alert-rule-title">⏰ 장시간 게임 플레이 휴식 알림</span>
-            <label style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; cursor:pointer;">
-              <input type="checkbox" id="rule-playtime-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 감시 켜기
+            <span class="alert-rule-title">장시간 플레이 휴식 알림</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="rule-playtime-on" onchange="onUpdateAlertConfig()" style="accent-color:var(--brand);" /> 활성
             </label>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <span style="font-size:12px; color:var(--text-muted);">연속 플레이 알림 기준</span>
-            <strong id="rule-playtime-label" style="font-size:18px; color:var(--neon-green);">120분 (2시간)</strong>
+            <span style="font-size:12px; color:var(--text-muted);">연속 플레이 기준</span>
+            <strong id="rule-playtime-label" style="font-size:18px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--text-normal);">120분 (2시간)</strong>
           </div>
           <input type="range" id="rule-playtime-val" class="range-slider" min="30" max="300" step="30" oninput="onUpdateAlertConfig()" />
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums;">
             <span>30분</span>
             <span id="live-rule-playtime">현재 게임 실행: 00:00:00</span>
             <span>300분(5시간)</span>
@@ -9406,22 +9591,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <!-- 스마트 경고 발생 히스토리 로그 테이블 -->
-      <div class="card" style="padding: 14px 16px; flex-shrink: 0;">
+      <div class="card" style="padding: 16px 20px; flex-shrink: 0;">
         <div class="card-header">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="card-title">📋 스마트 경고 발생 히스토리 로그</span>
+            <span class="card-title">경고 발생 기록</span>
             <span id="alert-history-count-badge" class="badge">0건</span>
           </div>
-          <button class="btn ghost" onclick="clearAlertHistory()" style="font-size:11px; padding:4px 10px;">🗑️ 경고 기록 비우기</button>
+          <button class="btn ghost" onclick="clearAlertHistory()">기록 비우기</button>
         </div>
         <div class="table-wrap" style="min-height: 180px; max-height: 320px; overflow-y: auto; flex: none;">
           <table>
             <thead>
               <tr>
-                <th style="cursor:default; width: 145px;">발생 시각</th>
-                <th style="cursor:default; width: 170px;">경고 항목</th>
+                <th style="cursor:default; width: 148px;">발생 시각</th>
+                <th style="cursor:default; width: 172px;">경고 항목</th>
                 <th style="cursor:default;">감지 수치 / 임계치</th>
-                <th style="cursor:default;">당시 실행 게임 / 상위 부하 프로세스</th>
+                <th style="cursor:default;">실행 게임 / 상위 부하 프로세스</th>
               </tr>
             </thead>
             <tbody id="alert-history-tbody"></tbody>
@@ -9432,26 +9617,26 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   </div>
 
   <!-- 원클릭 컴팩트 미니 HUD 모드 전용 뷰 -->
-  <div id="mini-hud-overlay" class="mini-hud-overlay hidden" ondblclick="exitMiniHudMode()" title="빈 영역 더블클릭 또는 Esc / F10 키로 원래 창 크기로 복귀">
+  <div id="mini-hud-overlay" class="mini-hud-overlay hidden" ondblclick="exitMiniHudMode()" title="빈 영역 더블클릭 또는 Esc / F10 키로 복귀">
     <div class="mini-hud-bar" ondblclick="event.stopPropagation()">
       <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
         <img src="/favicon.ico?v=3" width="15" height="15" style="border-radius:3px; flex-shrink:0;" alt="CF" />
-        <span style="font-size:11px; font-weight:900; letter-spacing:0.3px; flex-shrink:0;"><strong style="color:var(--brand)">CORE</strong>HUD</span>
-        <span id="mh-game-badge" class="badge" style="font-size:10px; padding:2px 6px; overflow:hidden; text-overflow:ellipsis;">IDLE 대기</span>
+        <span style="font-size:11px; font-weight:600; flex-shrink:0; color: var(--text-normal);">CoreHUD</span>
+        <span id="mh-game-badge" class="badge" style="font-size:10px; padding:1px 6px; overflow:hidden; text-overflow:ellipsis;">IDLE</span>
       </div>
       <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
-        <div class="mini-hud-opacity-control" title="미니 HUD 투명도 조절 (막대바를 드래그하여 투명도 실시간 설정)">
-          <span style="font-size:11px; flex-shrink:0;">👻</span>
+        <div class="mini-hud-opacity-control" title="미니 HUD 투명도 조절">
+          <span style="font-size:10px; color:var(--text-muted); flex-shrink:0;">투명도</span>
           <input type="range" id="mh-bar-opacity-slider" min="30" max="100" step="5" value="100"
                  oninput="onMiniHudBarSliderInput(this.value)"
                  onchange="onMiniHudBarSliderChange(this.value)"
                  class="mini-hud-slider" />
-          <span id="mh-bar-opacity-val" style="font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; min-width:30px; text-align:right; color:var(--brand);">100%</span>
+          <span id="mh-bar-opacity-val" style="font-size:10px; font-weight:500; font-family:var(--font-mono); font-variant-numeric:tabular-nums; min-width:30px; text-align:right; color:var(--text-normal);">100%</span>
         </div>
-        <button id="mh-topmost-btn" class="mini-btn active" onclick="toggleMiniHudTopmost()" title="다른 창이나 창모드 게임 위에 항상 고정(Topmost)할지 선택합니다">📌 항상 위 ON</button>
-        <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="컴팩트 2단 박스형과 슬림 1줄 가로 바형 레이아웃을 즉시 전환합니다">📐 가로바 전환</button>
-        <button class="mini-btn" onclick="openUiSettingsFromMiniHud()" title="표시할 하드웨어 항목 선택 및 박스형/가로바 레이아웃 설정 화면 열기">⚙️ 설정</button>
-        <button class="mini-btn active" onclick="exitMiniHudMode()" title="원래 창 크기와 위치로 즉시 복귀합니다 (Esc / F10)">⤢ 복귀</button>
+        <button id="mh-topmost-btn" class="mini-btn active" onclick="toggleMiniHudTopmost()" title="다른 창 위에 항상 고정">고정 ON</button>
+        <button id="mh-layout-btn" class="mini-btn" onclick="toggleMiniHudLayout()" title="박스형과 가로바형 레이아웃 전환">가로바</button>
+        <button class="mini-btn" onclick="openUiSettingsFromMiniHud()" title="미니 HUD 항목 및 위치 설정">설정</button>
+        <button class="mini-btn active" onclick="exitMiniHudMode()" title="원래 창 크기로 복귀 (Esc / F10)">복귀</button>
       </div>
     </div>
 
@@ -9459,12 +9644,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 1. 게임 FPS -->
       <div class="mini-hud-tile" id="mh-tile-fps">
         <div class="mini-hud-label">
-          <span>🎮 FPS</span>
+          <span>FPS</span>
           <span id="mh-fps-low" style="color:var(--text-muted)">1%L 0</span>
         </div>
-        <div class="mini-hud-val" id="mh-fps-val" style="color:var(--neon-green);">0 FPS</div>
+        <div class="mini-hud-val" id="mh-fps-val">0 FPS</div>
         <div class="progress-track" style="height:4px;">
-          <div class="progress-fill" id="mh-fps-bar" style="width:0%; background:var(--neon-green);"></div>
+          <div class="progress-fill" id="mh-fps-bar" style="width:0%; background:var(--green);"></div>
         </div>
         <div class="mini-hud-sub" id="mh-fps-sub">대기 중</div>
       </div>
@@ -9472,10 +9657,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 2. CPU 부하 -->
       <div class="mini-hud-tile" id="mh-tile-cpu">
         <div class="mini-hud-label">
-          <span>⚡ CPU</span>
+          <span>CPU</span>
           <span id="mh-cpu-core">0코어</span>
         </div>
-        <div class="mini-hud-val" id="mh-cpu-val" style="color:var(--brand);">0.0%</div>
+        <div class="mini-hud-val" id="mh-cpu-val">0.0%</div>
         <div class="progress-track" style="height:4px;">
           <div class="progress-fill" id="mh-cpu-bar" style="width:0%; background:var(--brand);"></div>
         </div>
@@ -9485,23 +9670,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 3. GPU & 온도 -->
       <div class="mini-hud-tile" id="mh-tile-gpu">
         <div class="mini-hud-label">
-          <span>🎛️ GPU</span>
-          <span id="mh-gpu-temp" style="color:var(--neon-green); font-weight:900;">0°C</span>
+          <span>GPU</span>
+          <span id="mh-gpu-temp" style="color:var(--green); font-weight:600;">0°C</span>
         </div>
-        <div class="mini-hud-val" id="mh-gpu-val" style="color:var(--orange);">0.0%</div>
+        <div class="mini-hud-val" id="mh-gpu-val">0.0%</div>
         <div class="progress-track" style="height:4px;">
           <div class="progress-fill" id="mh-gpu-bar" style="width:0%; background:var(--orange);"></div>
         </div>
-        <div class="mini-hud-sub" id="mh-gpu-sub">VRAM 0.0 GB • 0W</div>
+        <div class="mini-hud-sub" id="mh-gpu-sub">VRAM 0.0 GB · 0W</div>
       </div>
 
       <!-- 4. 시스템 RAM -->
       <div class="mini-hud-tile" id="mh-tile-ram">
         <div class="mini-hud-label">
-          <span>💾 RAM</span>
+          <span>RAM</span>
           <span id="mh-ram-swap">Swap 0G</span>
         </div>
-        <div class="mini-hud-val" id="mh-ram-val" style="color:var(--purple);">0.0%</div>
+        <div class="mini-hud-val" id="mh-ram-val">0.0%</div>
         <div class="progress-track" style="height:4px;">
           <div class="progress-fill" id="mh-ram-bar" style="width:0%; background:var(--purple);"></div>
         </div>
@@ -9511,21 +9696,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 5. 네트워크 속도 & 핑 -->
       <div class="mini-hud-tile" id="mh-tile-net">
         <div class="mini-hud-label">
-          <span id="mh-net-label">🌐 NET/PING</span>
-          <span id="mh-disk-io">💽 0.0M</span>
+          <span id="mh-net-label">NET / PING</span>
+          <span id="mh-disk-io">0.0M</span>
         </div>
-        <div class="mini-hud-val" id="mh-net-val" style="color:var(--cyan);">0.0 ms</div>
+        <div class="mini-hud-val" id="mh-net-val">0.0 ms</div>
         <div class="mini-hud-sub" id="mh-net-down">↓ 0.00 MB/s</div>
         <div class="mini-hud-sub" id="mh-net-up">↑ 0.00 MB/s</div>
       </div>
 
       <!-- 6. 플레이 시간 / 뽀모도로 타이머 -->
-      <div class="mini-hud-tile" id="mh-tile-timer" onclick="togglePomodoro()" style="cursor:pointer;" title="클릭하여 뽀모도로 타이머 시작/일시정지">
+      <div class="mini-hud-tile" id="mh-tile-timer" onclick="togglePomodoro()" style="cursor:pointer;" title="클릭하여 집중 타이머 시작/일시정지">
         <div class="mini-hud-label">
-          <span id="mh-timer-label">🍅 뽀모도로</span>
-          <span id="mh-timer-state" style="color:var(--brand);">클릭제어</span>
+          <span id="mh-timer-label">타이머</span>
+          <span id="mh-timer-state" style="color:var(--brand);">클릭 제어</span>
         </div>
-        <div class="mini-hud-val" id="mh-timer-val" style="color:var(--text-normal);">25:00</div>
+        <div class="mini-hud-val" id="mh-timer-val">25:00</div>
         <div class="progress-track" style="height:4px;">
           <div class="progress-fill" id="mh-timer-bar" style="width:0%; background:var(--brand);"></div>
         </div>
@@ -9538,29 +9723,29 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="uisettings-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">🎛️ 하드웨어 모니터링 항목 선택 & 미니 HUD 맞춤 설정</div>
-        <div class="detail-sub">내가 보고 싶은 하드웨어 지표만 골라서 띄우고, 미니 HUD를 '박스형'으로 쓸지 '가로바'로 쓸지 취향대로 설정하세요</div>
+        <div class="detail-title">화면 및 미니 HUD 설정</div>
+        <div class="detail-sub">표시할 하드웨어 지표를 선택하고 미니 HUD 레이아웃·투명도·위치를 설정합니다</div>
       </div>
       <div class="detail-actions">
-        <button class="btn secondary" onclick="resetUiPrefs()">🔄 전체 기본값 복원</button>
-        <button class="btn secondary" style="border-color:var(--neon-green); color:var(--neon-green);" onclick="closeUiSettingsModal(); enterMiniHudMode();">🗗 설정한 미니 HUD 바로 켜기 (F10)</button>
-        <button class="btn" onclick="closeUiSettingsModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <button class="btn secondary" onclick="resetUiPrefs()">기본값 복원</button>
+        <button class="btn secondary" style="border-color: rgba(76, 195, 138, 0.45); color: var(--green);" onclick="closeUiSettingsModal(); enterMiniHudMode();">미니 HUD 열기 <span class="kbd" style="margin-left: 4px;">F10</span></button>
+        <button class="btn" onclick="closeUiSettingsModal()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
 
     <div class="detail-body" style="gap: 16px;">
       <!-- 상단 원클릭 추천 프리셋 배너 -->
-      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.07);">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 16px 20px; border-left: 3px solid var(--brand);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div>
-            <div style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">⚡ 원클릭 추천 구성 프리셋</div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">자주 쓰는 조합을 버튼 하나로 바로 적용한 뒤 아래에서 세부 항목을 자유롭게 켜고 끌 수 있습니다</div>
+            <div style="font-size: 14px; font-weight: 500; color: var(--text-normal);">추천 구성 프리셋</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">자주 쓰는 구성을 적용한 뒤 아래에서 항목별로 켜고 끌 수 있습니다</div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="btn secondary" onclick="applyUiPreset('all')">🌟 전체 다 보기 (기본)</button>
-            <button class="btn secondary" onclick="applyUiPreset('gamer')">🎮 게이머 핵심 (FPS+GPU+CPU)</button>
-            <button class="btn secondary" onclick="applyUiPreset('minimal')">🔥 초경량 (FPS+GPU 온도만)</button>
-            <button class="btn secondary" onclick="applyUiPreset('work')">💻 작업/업무 집중 (CPU+RAM+할일)</button>
+            <button class="btn secondary" onclick="applyUiPreset('all')">전체 보기 (기본)</button>
+            <button class="btn secondary" onclick="applyUiPreset('gamer')">게이머 (FPS·GPU·CPU)</button>
+            <button class="btn secondary" onclick="applyUiPreset('minimal')">초경량 (FPS·GPU 온도)</button>
+            <button class="btn secondary" onclick="applyUiPreset('work')">작업 집중 (CPU·RAM·할 일)</button>
           </div>
         </div>
       </div>
@@ -9569,72 +9754,72 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 16px; flex-shrink: 0; padding-bottom: 12px;">
 
         <!-- 좌측: 통합 대시보드 하드웨어 모니터링 표시 항목 선택 -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 14px;">
+        <div class="card" style="overflow: visible; padding: 20px; gap: 16px;">
           <div class="card-header" style="margin-bottom: 0;">
             <div>
-              <div class="card-title" style="font-size: 15px; color: var(--text-normal);">🖥️ 1. 메인 대시보드 모니터링 항목 선택</div>
-              <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">체크를 해제한 카드는 대시보드에서 숨겨지며, 남은 카드들이 빈자리 없이 화면에 맞춰 큼직하게 자동 정렬됩니다.</div>
+              <div class="card-title" style="font-size: 14px; color: var(--text-normal);">1. 메인 대시보드 표시 항목</div>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">숨긴 카드는 제외되며 남은 카드가 화면 폭에 맞춰 자동 정렬됩니다</div>
             </div>
             <span class="badge" id="ui-dash-count-badge" style="color: var(--brand); flex-shrink: 0;">7 / 7개 표시 중</span>
           </div>
 
-          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 2px;">상단 핵심 하드웨어 & 게이밍 카드 (4종)</div>
+          <div style="font-size: 12px; font-weight: 500; color: var(--text-muted);">상단 핵심 지표 카드 (4종)</div>
           <div class="custom-toggle-grid">
             <div class="custom-toggle-card active" id="uicard-dashCpu" onclick="toggleUiPref('dashCpu')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">⚡ CPU 부하</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">전체 사용률 및 논리 코어 상태</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">CPU 부하</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">전체 사용률 및 논리 코어</div>
               </div>
               <span class="switch-pill on" id="uipill-dashCpu">ON</span>
             </div>
 
             <div class="custom-toggle-card active" id="uicard-dashRam" onclick="toggleUiPref('dashRam')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">💾 시스템 RAM</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">물리 메모리 및 가상 메모리(Swap)</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">시스템 RAM</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">물리 메모리 및 가상 메모리</div>
               </div>
               <span class="switch-pill on" id="uipill-dashRam">ON</span>
             </div>
 
             <div class="custom-toggle-card active" id="uicard-dashGpu" onclick="toggleUiPref('dashGpu')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🎛️ GPU & VRAM</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">그래픽카드 부하·온도·전력·VRAM</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">GPU 및 VRAM</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">부하 · 온도 · 전력 · VRAM</div>
               </div>
               <span class="switch-pill on" id="uipill-dashGpu">ON</span>
             </div>
 
             <div class="custom-toggle-card active" id="uicard-dashFps" onclick="toggleUiPref('dashFps')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🎮 게임 실시간 FPS</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">인게임 프레임·1% Low·프레임타임</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">게임 FPS</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">실시간 FPS · 1% Low · 프레임타임</div>
               </div>
               <span class="switch-pill on" id="uipill-dashFps">ON</span>
             </div>
           </div>
 
-          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 4px;">중단 요약 바 & 하단 상세 패널 (3종)</div>
-          <div style="display: flex; flex-direction: column; gap: 9px;">
+          <div style="font-size: 12px; font-weight: 500; color: var(--text-muted);">중단 요약 바 및 하단 패널 (3종)</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
             <div class="custom-toggle-card active" id="uicard-dashNetDisk" onclick="toggleUiPref('dashNetDisk')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🌐 네트워크 속도·핑(Ping) & 디스크 I/O 요약 바</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">실시간 다운로드/업로드 속도, 게임 서버 핑, 디스크 읽기/쓰기 한 줄 요약</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">네트워크 · 디스크 요약 바</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">다운로드/업로드 속도, 게임 서버 핑, 디스크 읽기/쓰기 요약</div>
               </div>
               <span class="switch-pill on" id="uipill-dashNetDisk">ON</span>
             </div>
 
             <div class="custom-toggle-card active" id="uicard-dashProcs" onclick="toggleUiPref('dashProcs')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">📊 실시간 상위 프로세스 목록 표</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">CPU·메모리를 많이 쓰는 프로그램 확인 및 우클릭 강제 종료</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">상위 프로세스 목록 표</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">CPU · 메모리 점유 프로세스 확인 및 우클릭 종료</div>
               </div>
               <span class="switch-pill on" id="uipill-dashProcs">ON</span>
             </div>
 
             <div class="custom-toggle-card active" id="uicard-dashPomo" onclick="toggleUiPref('dashPomo')">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🍅 뽀모도로 집중 타이머 & 오늘 할 일 보드</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">25분 집중 타이머와 체크리스트 (끄면 프로세스 표가 전체 폭으로 넓어집니다)</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">집중 타이머 및 오늘 할 일</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">25분 타이머와 체크리스트 (끄면 프로세스 표가 전체 폭으로 확장)</div>
               </div>
               <span class="switch-pill on" id="uipill-dashPomo">ON</span>
             </div>
@@ -9642,22 +9827,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- 우측: 미니 HUD 형태(박스형 vs 가로바) 및 표시 타일 설정 -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 14px;">
+        <div class="card" style="overflow: visible; padding: 20px; gap: 16px;">
           <div class="card-header" style="margin-bottom: 0;">
             <div>
-              <div class="card-title" style="font-size: 15px; color: var(--text-normal);">🗗 2. 미니 HUD 스타일 (박스형 vs 가로바) & 항목 설정</div>
-              <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">단축키 <code>F10</code> 또는 상단 [🗗 미니 HUD] 버튼 클릭 시 전환되는 미니 상태창의 모양을 설정합니다.</div>
+              <div class="card-title" style="font-size: 14px; color: var(--text-normal);">2. 미니 HUD 레이아웃 및 항목</div>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;"><span class="kbd">F10</span> 또는 상단 미니 HUD 버튼으로 전환되는 상태창을 설정합니다</div>
             </div>
-            <span class="badge" id="ui-hud-count-badge" style="color: var(--neon-green); flex-shrink: 0;">6개 타일 활성</span>
+            <span class="badge" id="ui-hud-count-badge" style="color: var(--green); flex-shrink: 0;">6개 타일 활성</span>
           </div>
 
-          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted);">미니 HUD 창 모양 선택 (박스형 / 가로바형)</div>
+          <div style="font-size: 12px; font-weight: 500; color: var(--text-muted);">창 레이아웃 선택</div>
           <div class="hud-style-grid">
             <!-- 박스형 선택 카드 -->
             <div class="hud-style-card selected" id="hudstyle-box" onclick="setMiniHudStylePref(false)">
               <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">📦 컴팩트 박스형</span>
-                <span class="badge" id="hudstyle-box-badge" style="background: var(--brand); color: #fff;">선택됨 ✓</span>
+                <span style="font-size: 13px; font-weight: 500; color: var(--text-normal);">컴팩트 박스형</span>
+                <span class="badge" id="hudstyle-box-badge" style="background: var(--brand); border-color: var(--brand); color: #fff;">선택됨</span>
               </div>
               <div class="hud-diagram-box">
                 <div class="hud-diagram-cell"></div>
@@ -9667,16 +9852,16 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 <div class="hud-diagram-cell"></div>
                 <div class="hud-diagram-cell"></div>
               </div>
-              <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.45;">
-                <strong>2단 바둑판 박스 모양</strong>으로 보조 모니터 구석이나 바탕화면 한쪽에 아담하게 모아 보기 좋습니다.
+              <div style="font-size: 12px; color: var(--text-muted); line-height: 1.45;">
+                2단 바둑판 배치로 보조 모니터 구석이나 바탕화면 한쪽에 두기 적합합니다
               </div>
             </div>
 
             <!-- 가로바 선택 카드 -->
             <div class="hud-style-card" id="hudstyle-bar" onclick="setMiniHudStylePref(true)">
               <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">📏 슬림 가로 바형</span>
-                <span class="badge" id="hudstyle-bar-badge">클릭하여 선택</span>
+                <span style="font-size: 13px; font-weight: 500; color: var(--text-normal);">슬림 가로 바형</span>
+                <span class="badge" id="hudstyle-bar-badge">선택</span>
               </div>
               <div style="display: flex; align-items: center; flex: 1;">
                 <div class="hud-diagram-bar" style="width: 100%;">
@@ -9688,8 +9873,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                   <div class="hud-diagram-cell"></div>
                 </div>
               </div>
-              <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.45;">
-                <strong>1줄 슬림 가로 스트립 모양</strong>으로 모니터 상단·하단이나 창모드 게임 위쪽에 얇고 길게 띄워두기 좋습니다.
+              <div style="font-size: 12px; color: var(--text-muted); line-height: 1.45;">
+                1줄 가로 스트립 배치로 화면 상단·하단이나 창모드 게임 위에 두기 적합합니다
               </div>
             </div>
           </div>
@@ -9697,51 +9882,51 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <!-- 미니 HUD 항상 위 고정 옵션 -->
           <div class="custom-toggle-card active" id="uicard-hudTopmost" onclick="toggleUiPref('hudTopmost')">
             <div>
-              <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">📌 미니 HUD를 항상 다른 창 위에 고정 (Always on Top)</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임이나 인터넷 창을 클릭해도 미니 HUD가 뒤로 가려지지 않고 항상 맨 위에 보이도록 고정합니다</div>
+              <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">항상 다른 창 위에 고정 (Always on Top)</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임이나 브라우저를 클릭해도 미니 HUD가 가려지지 않도록 유지합니다</div>
             </div>
             <span class="switch-pill on" id="uipill-hudTopmost">ON</span>
           </div>
 
-          <!-- 미니 HUD 창 투명도(불투명도) 조절 옵션 -->
-          <div class="card" style="padding: 12px 14px; gap: 8px; background: rgba(var(--brand-rgb), 0.05); border: 1px solid rgba(var(--brand-rgb), 0.2);">
+          <!-- 미니 HUD 창 투명도 조절 옵션 -->
+          <div class="card" style="padding: 12px 16px; gap: 8px; background: var(--bg-elevated);">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">👻 미니 HUD 창 투명도 (배경 투과율)</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">게임을 가리지 않도록 창을 반투명하게 투과시킵니다 (미니 HUD 상단 바의 👻 버튼으로도 즉시 조절 가능)</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">창 투명도</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">화면 가림을 줄이도록 미니 HUD 투명도를 조절합니다</div>
               </div>
-              <strong id="ui-hud-opacity-label" style="font-size: 14px; color: var(--brand); min-width: 48px; text-align: right;">100%</strong>
+              <strong id="ui-hud-opacity-label" style="font-size: 13px; font-weight: 500; font-family: var(--font-mono); color: var(--brand); min-width: 48px; text-align: right;">100%</strong>
             </div>
             <div style="display:flex; align-items:center; gap: 12px; margin-top: 4px;">
               <input type="range" id="ui-hud-opacity-slider" min="30" max="100" step="5" value="100" oninput="onMiniHudOpacitySlider(this.value)" style="flex:1; cursor:pointer;" />
               <div style="display:flex; gap: 4px; flex-shrink: 0;">
-                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(100)">100% (불투명)</button>
-                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(80)">80%</button>
-                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(60)">60%</button>
-                <button class="btn secondary" style="padding: 4px 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(40)">40% (고투명)</button>
+                <button class="btn secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(100)">100%</button>
+                <button class="btn secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(80)">80%</button>
+                <button class="btn secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(60)">60%</button>
+                <button class="btn secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" onclick="setMiniHudOpacityPref(40)">40%</button>
               </div>
             </div>
-            <label style="display:flex; align-items:center; gap: 6px; font-size: 11.5px; color: var(--text-normal); margin-top: 4px; cursor:pointer;">
-              <input type="checkbox" id="ui-hud-hover-opaque" onchange="toggleMiniHudHoverOpaque(this.checked)" checked style="cursor:pointer;" />
-              <span>마우스 커서를 올렸을 때(Hover) 일시적으로 또렷하게(100%) 표시하여 버튼 클릭을 편리하게 합니다</span>
+            <label style="display:flex; align-items:center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-top: 4px; cursor:pointer;">
+              <input type="checkbox" id="ui-hud-hover-opaque" onchange="toggleMiniHudHoverOpaque(this.checked)" checked style="cursor:pointer; accent-color: var(--brand);" />
+              <span>마우스를 올리면 일시적으로 100% 불투명하게 표시</span>
             </label>
           </div>
 
           <!-- 미니 HUD 시작 위치 선택 (8방향 프리셋 + 마지막 위치 기억) -->
-          <div class="card" style="padding: 12px 14px; gap: 6px; background: rgba(var(--brand-rgb), 0.05); border: 1px solid rgba(var(--brand-rgb), 0.2);">
+          <div class="card" style="padding: 12px 16px; gap: 8px; background: var(--bg-elevated);">
             <div style="display:flex; justify-content:space-between; align-items:center; gap: 8px;">
               <div>
-                <div style="font-size: 13px; font-weight: 800; color: var(--text-normal);">🧭 미니 HUD 표시 위치 (8방향 프리셋)</div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">미니 HUD 버튼을 눌렀을 때 창이 자동으로 배치될 화면 위치를 선택합니다</div>
+                <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">표시 위치 (8방향 프리셋)</div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">미니 HUD 전환 시 창이 배치될 화면 위치를 지정합니다</div>
               </div>
-              <strong id="ui-hud-anchor-label" style="font-size: 12px; color: var(--brand); white-space: nowrap;">📌 마지막 위치 기억</strong>
+              <strong id="ui-hud-anchor-label" style="font-size: 12px; font-weight: 500; color: var(--brand); white-space: nowrap;">마지막 위치 기억</strong>
             </div>
             <div class="hud-anchor-grid">
               <button type="button" class="hud-anchor-btn" data-anchor="tl" onclick="setMiniHudAnchorPref('tl')">↖ 좌상단</button>
               <button type="button" class="hud-anchor-btn" data-anchor="tc" onclick="setMiniHudAnchorPref('tc')">↑ 상단 중앙</button>
               <button type="button" class="hud-anchor-btn" data-anchor="tr" onclick="setMiniHudAnchorPref('tr')">↗ 우상단</button>
               <button type="button" class="hud-anchor-btn" data-anchor="ml" onclick="setMiniHudAnchorPref('ml')">← 좌측 중앙</button>
-              <button type="button" class="hud-anchor-btn active" data-anchor="last" onclick="setMiniHudAnchorPref('last')">📌 마지막 위치</button>
+              <button type="button" class="hud-anchor-btn active" data-anchor="last" onclick="setMiniHudAnchorPref('last')">마지막 위치</button>
               <button type="button" class="hud-anchor-btn" data-anchor="mr" onclick="setMiniHudAnchorPref('mr')">→ 우측 중앙</button>
               <button type="button" class="hud-anchor-btn" data-anchor="bl" onclick="setMiniHudAnchorPref('bl')">↙ 좌하단</button>
               <button type="button" class="hud-anchor-btn" data-anchor="bc" onclick="setMiniHudAnchorPref('bc')">↓ 하단 중앙</button>
@@ -9750,39 +9935,39 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           </div>
 
           <!-- 미니 HUD에 표시할 타일 개별 선택 -->
-          <div style="font-size: 12px; font-weight: 800; color: var(--text-muted); margin-top: 2px;">미니 HUD에 표시할 하드웨어 타일 선택 (원하는 항목만 골라 담기)</div>
+          <div style="font-size: 12px; font-weight: 500; color: var(--text-muted);">미니 HUD 표시 타일 선택</div>
           <div class="custom-toggle-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
             <div class="custom-toggle-card active" id="uicard-hudFps" onclick="toggleUiPref('hudFps')">
-              <span style="font-size: 12.5px; font-weight: 800;">🎮 게임 FPS</span>
+              <span style="font-size: 12px; font-weight: 500;">게임 FPS</span>
               <span class="switch-pill on" id="uipill-hudFps">ON</span>
             </div>
             <div class="custom-toggle-card active" id="uicard-hudCpu" onclick="toggleUiPref('hudCpu')">
-              <span style="font-size: 12.5px; font-weight: 800;">⚡ CPU 부하</span>
+              <span style="font-size: 12px; font-weight: 500;">CPU 부하</span>
               <span class="switch-pill on" id="uipill-hudCpu">ON</span>
             </div>
             <div class="custom-toggle-card active" id="uicard-hudGpu" onclick="toggleUiPref('hudGpu')">
-              <span style="font-size: 12.5px; font-weight: 800;">🎛️ GPU·온도</span>
+              <span style="font-size: 12px; font-weight: 500;">GPU · 온도</span>
               <span class="switch-pill on" id="uipill-hudGpu">ON</span>
             </div>
             <div class="custom-toggle-card active" id="uicard-hudRam" onclick="toggleUiPref('hudRam')">
-              <span style="font-size: 12.5px; font-weight: 800;">💾 시스템 RAM</span>
+              <span style="font-size: 12px; font-weight: 500;">시스템 RAM</span>
               <span class="switch-pill on" id="uipill-hudRam">ON</span>
             </div>
             <div class="custom-toggle-card active" id="uicard-hudNet" onclick="toggleUiPref('hudNet')">
-              <span style="font-size: 12.5px; font-weight: 800;">🌐 핑·네트워크</span>
+              <span style="font-size: 12px; font-weight: 500;">핑 · 네트워크</span>
               <span class="switch-pill on" id="uipill-hudNet">ON</span>
             </div>
             <div class="custom-toggle-card active" id="uicard-hudTimer" onclick="toggleUiPref('hudTimer')">
-              <span style="font-size: 12.5px; font-weight: 800;">⏱️ 플레이타임</span>
+              <span style="font-size: 12px; font-weight: 500;">플레이타임</span>
               <span class="switch-pill on" id="uipill-hudTimer">ON</span>
             </div>
           </div>
 
           <!-- 실시간 미니 HUD 배치 미리보기 -->
-          <div style="background: var(--bg-primary); border: 1px dashed var(--border-subtle); border-radius: 10px; padding: 10px 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <span style="font-size: 11.5px; font-weight: 800; color: var(--text-muted);">👀 현재 설정된 미니 HUD 배치 미리보기</span>
-              <span id="ui-hud-preview-meta" style="font-size: 11px; color: var(--brand); font-weight: 700;">📦 컴팩트 박스형 (3열 × 2단)</span>
+          <div style="background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 12px; font-weight: 500; color: var(--text-muted);">배치 미리보기</span>
+              <span id="ui-hud-preview-meta" style="font-size: 11px; color: var(--brand); font-weight: 500;">컴팩트 박스형 (3열 × 2단)</span>
             </div>
             <div id="ui-hud-live-preview" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;"></div>
           </div>
@@ -9796,20 +9981,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="gamescan-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">🎮 실행 중인 게임 프로세스 탐지 & 관리</div>
-        <div class="detail-sub">포그라운드 활성 창 • Steam / Epic / Riot / 배틀넷 / 넥슨 등 설치 폴더 • 3D 그래픽 부하 프로세스 자동 스캔</div>
+        <div class="detail-title">게임 프로세스 탐색 및 관리</div>
+        <div class="detail-sub">활성 창 · Steam / Epic / Riot / 배틀넷 설치 경로 · 3D 렌더링 프로세스 자동 스캔</div>
       </div>
       <div class="detail-actions">
-        <button class="btn ghost" onclick="refreshGameScanData()">🔄 지금 다시 스캔</button>
-        <button class="btn ghost" onclick="resetToAutoDetect()">🎯 게임 자동 감지로 복원</button>
-        <button class="btn" onclick="closeGameScanModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <button class="btn ghost" onclick="refreshGameScanData()">다시 스캔</button>
+        <button class="btn ghost" onclick="resetToAutoDetect()">자동 감지로 복원</button>
+        <button class="btn" onclick="closeGameScanModal()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
     <div class="detail-content" style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px;">
       <!-- 좌측: 실시간 감지된 게임 후보 목록 -->
-      <div class="card" style="padding: 16px; overflow-y: auto;">
-        <div class="card-head" style="margin-bottom: 12px;">
-          <span class="card-title">🔍 실시간 탐지된 게임 프로세스 후보</span>
+      <div class="card" style="padding: 20px; overflow-y: auto;">
+        <div class="card-head" style="margin-bottom: 8px;">
+          <span class="card-title">감지된 게임 프로세스 후보</span>
           <span id="scan-candidate-count" class="badge">0개 감지</span>
         </div>
         <div id="scan-candidate-list" style="display: flex; flex-direction: column; gap: 8px;">
@@ -9817,23 +10002,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <div class="card-head" style="margin-top: 24px; margin-bottom: 8px;">
-          <span class="card-title">📋 전체 프로세스 검색에서 게임 직접 추가</span>
+          <span class="card-title">전체 프로세스에서 직접 추가</span>
         </div>
-        <input type="text" id="scan-proc-search" class="search-input" placeholder="실행 중인 프로세스 이름 검색 (예: game.exe, javaw, ff14)..." oninput="renderScanAllProcesses()" style="width: 100%; margin-bottom: 10px;">
+        <input type="text" id="scan-proc-search" class="search-input" placeholder="프로세스 이름 검색 (예: game.exe)" oninput="renderScanAllProcesses()" style="width: 100%; margin-bottom: 10px;">
         <div id="scan-all-proc-list" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
       </div>
 
       <!-- 우측: 영구 등록된 사용자 커스텀 게임 목록 -->
-      <div class="card" style="padding: 16px; overflow-y: auto;">
-        <div class="card-head" style="margin-bottom: 12px;">
-          <span class="card-title">⭐ 영구 등록된 게임 목록 (자동 감지 대상)</span>
+      <div class="card" style="padding: 20px; overflow-y: auto;">
+        <div class="card-head" style="margin-bottom: 8px;">
+          <span class="card-title">영구 등록된 게임 목록</span>
           <span id="scan-custom-count" class="badge">0개 등록</span>
         </div>
         <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          여기에 등록된 실행 파일은 게임이 켜지는 순간 CoreFlow가 최우선으로 감지하여 플레이 타임과 FPS를 즉시 기록합니다.
+          등록된 실행 파일은 실행 즉시 최우선으로 감지되어 플레이 타임과 FPS가 기록됩니다.
         </div>
         <div id="scan-custom-list" style="display: flex; flex-direction: column; gap: 8px;">
-          <div class="empty-state-box">등록된 사용자 정의 게임이 없습니다.</div>
+          <div class="empty-state-box">등록된 사용자 정의 게임이 없습니다</div>
         </div>
       </div>
     </div>
@@ -9843,54 +10028,54 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="update-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">🔄 CoreFlow 버전 정보 및 GitHub 자동 업데이트</div>
-        <div class="detail-sub">공식 저장소 (github.com/neverloselkb/coreFlow) Releases 연동 자동 업데이트 시스템</div>
+        <div class="detail-title">버전 정보 및 업데이트</div>
+        <div class="detail-sub">github.com/neverloselkb/coreFlow Releases 연동</div>
       </div>
       <div class="detail-actions">
-        <button class="btn secondary" onclick="checkForUpdates(true)">🔍 다시 확인</button>
-        <button class="btn secondary" onclick="openGithubPage('https://github.com/neverloselkb/coreFlow/releases')">🌐 GitHub Releases 열기</button>
-        <button class="btn" onclick="closeUpdateModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <button class="btn secondary" onclick="checkForUpdates(true)">다시 확인</button>
+        <button class="btn secondary" onclick="openGithubPage('https://github.com/neverloselkb/coreFlow/releases')">GitHub Releases</button>
+        <button class="btn" onclick="closeUpdateModal()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
     <div class="detail-body" style="max-width: 780px; margin: 0 auto; width: 100%; gap: 16px;">
       <div class="card" style="padding: 20px;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
-          <div style="display: flex; align-items: center; gap: 14px;">
-            <img src="/favicon.ico" style="width: 52px; height: 52px; border-radius: 12px;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <img src="/favicon.ico" style="width: 48px; height: 48px; border-radius: 10px;">
             <div>
-              <div style="font-size: 18px; font-weight: 800; color: var(--text-normal); display: flex; align-items: center; gap: 8px;">
+              <div style="font-size: 18px; font-weight: 600; color: var(--text-normal); display: flex; align-items: center; gap: 8px;">
                 <span>CoreFlow</span>
                 <span class="badge" id="upd-current-badge">현재 v__COREFLOW_APP_VERSION__</span>
-                <span class="badge" id="upd-latest-badge" style="color: var(--neon-green);">확인 중...</span>
+                <span class="badge" id="upd-latest-badge" style="color: var(--green);">확인 중...</span>
               </div>
               <div id="upd-status-headline" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-                GitHub 저장소에서 최신 릴리스 정보를 확인하고 있습니다...
+                GitHub 저장소에서 최신 릴리스 정보를 확인하고 있습니다
               </div>
             </div>
           </div>
           <div id="upd-action-area">
-            <button id="btn-do-update" class="btn" style="padding: 10px 18px; font-size: 13.5px; font-weight: 800; display: none;" onclick="triggerSelfUpdate()">
-              🚀 원클릭 자동 업데이트 및 재시작
+            <button id="btn-do-update" class="btn" style="height: 36px; padding: 0 16px; display: none;" onclick="triggerSelfUpdate()">
+              업데이트 설치 및 재시작
             </button>
           </div>
         </div>
       </div>
 
-      <div class="card" style="padding: 18px;">
-        <div class="card-head" style="margin-bottom: 10px;">
-          <span class="card-title">📋 릴리스 노트 (Release Notes)</span>
+      <div class="card" style="padding: 20px;">
+        <div class="card-head" style="margin-bottom: 8px;">
+          <span class="card-title">릴리스 노트</span>
           <span class="badge" id="upd-tag-label">neverloselkb/coreFlow</span>
         </div>
-        <div id="upd-release-notes" style="font-size: 13px; color: var(--text-normal); line-height: 1.6; white-space: pre-wrap; background: var(--bg-primary); padding: 14px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 280px; overflow-y: auto;">
+        <div id="upd-release-notes" style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; background: var(--bg-tertiary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-subtle); max-height: 280px; overflow-y: auto;">
           릴리스 정보를 불러오는 중...
         </div>
       </div>
 
-      <div class="card" style="padding: 16px; font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
-        <div style="font-weight: 800; color: var(--text-normal); margin-bottom: 4px;">💡 개발자 배포 가이드 (새 버전 업데이트 배포 방법)</div>
-        <div>1. 코드 수정 후 <code>Cargo.toml</code>의 <code>version</code>을 올리고(예: <code>1.1.0</code>) <code>CoreFlow</code>와 <code>CoreFlow_Setup</code>을 빌드합니다.</div>
-        <div>2. GitHub 저장소(<strong>neverloselkb/coreFlow</strong>)의 <strong>[Releases] → [Draft a new release]</strong>에서 태그(예: <code>v1.1.0</code>)를 생성하고, 빌드된 <strong><code>CoreFlow_Setup.exe</code></strong> 파일을 첨부하여 게시(Publish)합니다.</div>
-        <div>3. 기존 사용자들이 CoreFlow를 실행하면 자동으로 새 버전을 감지하여 데이터 손실 없이 원클릭으로 업데이트됩니다!</div>
+      <div class="card" style="padding: 16px 20px; font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+        <div style="font-weight: 500; color: var(--text-normal); margin-bottom: 4px;">배포 안내</div>
+        <div>1. <code>Cargo.toml</code> 버전을 올린 뒤 <code>CoreFlow</code>와 <code>CoreFlow_Setup</code>을 빌드합니다.</div>
+        <div>2. GitHub 저장소(<strong>neverloselkb/coreFlow</strong>)에서 태그(예: <code>v1.1.0</code>)를 생성해 <strong><code>CoreFlow_Setup.exe</code></strong>를 게시합니다.</div>
+        <div>3. 기존 설치본은 실행 시 새 버전을 자동 감지하여 설정을 유지한 채 업데이트합니다.</div>
       </div>
     </div>
   </div>
@@ -9899,27 +10084,27 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <div id="help-overlay" class="detail-overlay hidden">
     <div class="detail-header">
       <div class="detail-title-group">
-        <div class="detail-title">❓ 알기 쉬운 PC 상태 & 게임 렉 진단 가이드</div>
-        <div class="detail-sub">컴퓨터를 잘 몰라도 괜찮아요! 각 숫자가 무엇을 뜻하는지, 언제 왜 렉이 걸리는지 쉽게 알려드립니다</div>
+        <div class="detail-title">PC 상태 및 게임 렉 진단 가이드</div>
+        <div class="detail-sub">주요 하드웨어 지표 해석과 프레임 드랍·지연 원인 확인 방법</div>
       </div>
       <div class="detail-actions">
-        <span class="badge" style="color: var(--brand);">단축키: F1 (열기) / Esc (닫기)</span>
-        <button class="btn" onclick="closeHelpModal()">↙ 대시보드로 돌아가기 (Esc)</button>
+        <span class="badge"><span class="kbd">F1</span> 열기 · <span class="kbd">Esc</span> 닫기</span>
+        <button class="btn" onclick="closeHelpModal()">닫기 <span class="kbd" style="margin-left: 4px; background: rgba(255,255,255,0.18); color: #fff; border-color: transparent;">Esc</span></button>
       </div>
     </div>
 
     <div class="detail-body" style="gap: 16px;">
       <!-- 상단 빠른 단축키 & 핵심 활용 팁 요약 배너 -->
-      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 14px 18px; border-left: 4px solid var(--brand); background: rgba(var(--brand-rgb), 0.08);">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-          <div style="font-size: 13.5px; font-weight: 800; color: var(--text-normal);">
-            💡 CoreFlow 200% 활용 핵심 단축키 & 조작 팁
+      <div class="card" style="flex-shrink: 0; overflow: visible; padding: 16px 20px; border-left: 3px solid var(--brand);">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+          <div style="font-size: 13px; font-weight: 500; color: var(--text-normal);">
+            주요 단축키 및 조작
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px;">
-            <span class="badge">🖱️ 상단 카드 <strong>더블클릭</strong>: 크게 자세히 보기</span>
-            <span class="badge">🖱️ 프로그램 이름 <strong>우클릭</strong>: 강제 끄기 / 게임으로 등록</span>
-            <span class="badge">⌨️ <strong>F10</strong>: 작은 미니 창(HUD) 모드</span>
-            <span class="badge">🔢 <strong>차트형 ↔ 수치 그리드</strong>: 그래프와 숫자 표 전환</span>
+            <span class="badge">카드 더블클릭: 상세 보기</span>
+            <span class="badge">프로세스 우클릭: 종료 / 게임 등록</span>
+            <span class="badge"><span class="kbd">F10</span> 미니 HUD 전환</span>
+            <span class="badge">차트형 ↔ 수치 그리드 전환</span>
           </div>
         </div>
       </div>
@@ -9927,116 +10112,116 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       <!-- 2열 가이드 그리드 -->
       <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; flex-shrink: 0; padding-bottom: 12px;">
 
-        <!-- 1. CPU 가이드 (컴퓨터의 두뇌) -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--brand); white-space: normal;">⚡ 1. CPU 부하 — "컴퓨터의 두뇌와 일꾼들"</div>
+        <!-- 1. CPU 가이드 -->
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">1. CPU 부하</div>
             <span class="badge" style="flex-shrink: 0;">통합 대시보드 / CPU 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 이럴 때 주의: 전체 CPU는 30%밖에 안 되는데, 작은 칸(Core) 1~2개만 95~100%로 꽉 찰 때</strong><br>
-              CPU 안에는 여러 명의 일꾼(코어)이 있습니다. 전체 평균은 한가해 보여도, <strong>게임을 담당하는 대표 일꾼 1~2명이 과로로 지쳐 쓰러지기 직전</strong>인 상태입니다! 이러면 그래픽카드가 아무리 좋아도 게임 화면이 뚝뚝 끊깁니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임할 때는 뒤에 켜둔 인터넷 창(유튜브 등)이나 안 쓰는 메신저·런처를 꺼서 일꾼의 부담을 덜어주세요.</span>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--red); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--red); font-weight: 500;">주의: 전체 CPU는 30%인데 특정 코어 1~2개만 95~100%일 때</strong><br>
+              평균 사용률이 낮아 보여도 게임을 담당하는 주 스레드 코어가 포화 상태이면 그래픽카드 성능과 무관하게 화면이 끊깁니다.<br>
+              <span style="color: var(--text-muted);">해결: 백그라운드 브라우저 탭이나 사용하지 않는 런처·메신저를 종료해 코어 부하를 줄여주세요.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 아무것도 안 하고 바탕화면만 띄워놨는데 CPU가 계속 15% 이상일 때</strong><br>
-              보이지 않는 곳에서 백신 검사(<code>MsMpEng.exe</code>)나 자동 업데이트, 혹은 제대로 안 꺼진 프로그램이 컴퓨터 힘을 몰래 쓰고 있는 것입니다. 아래 <strong>[실행 중인 프로세스]</strong> 표에서 <strong>CPU</strong> 글자를 눌러 많이 쓰는 순서대로 정렬한 뒤, 필요 없는 프로그램을 <strong>마우스 우클릭 → 강제 종료</strong>해 보세요.
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. GPU & VRAM 가이드 (게임 그래픽 담당) -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--orange); white-space: normal;">🎛️ 2. GPU & VRAM — "게임 화면을 그려주는 그래픽카드"</div>
-            <span class="badge" style="flex-shrink: 0;">하드웨어 GPU 상세</span>
-          </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 이럴 때 주의: GPU 온도가 83°C~85°C를 넘으면서 갑자기 게임이 심하게 버벅거릴 때</strong><br>
-              그래픽카드가 너무 뜨거워져서 <strong>"이러다 고장 나겠다!" 하고 스스로 속도를 확 줄여버리는 현상</strong>(과열 보호)입니다. 처음엔 잘 되던 게임이 20~30분 뒤부터 갑자기 끊긴다면 99% 이 온도 문제입니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> [🔔 스마트 알림]에서 GPU 온도 경고를 80°C로 켜두시고, 본체 주변이 막혀 있지 않은지·먼지가 쌓이지 않았는지 확인해 주세요.</span>
-            </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: VRAM(비디오 메모리)이 90~95% 이상 꽉 찼을 때</strong><br>
-              <strong>VRAM</strong>은 게임 속 배경·캐릭터 그림을 담아두는 '그래픽카드 전용 창고'입니다. 이 창고가 꽉 차면 마우스로 시야를 돌릴 때마다 화면이 0.5초씩 덜컥거리며 멈춥니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임 내 그래픽 설정에서 <strong>'텍스처(Texture) 품질'</strong>이나 '그림자' 옵션을 한 단계만 낮추면 거짓말처럼 부드러워집니다!</span>
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--orange); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--orange); font-weight: 500;">주의: 유휴 상태에서 CPU가 계속 15% 이상일 때</strong><br>
+              백신 검사(<code>MsMpEng.exe</code>), Windows 업데이트, 또는 잔류 프로세스가 자원을 점유 중일 수 있습니다. 상위 프로세스 표에서 CPU 열로 정렬 후 불필요한 항목을 우클릭해 종료할 수 있습니다.
             </div>
           </div>
         </div>
 
-        <!-- 3. 시스템 RAM & 가상 메모리(Swap) 가이드 (컴퓨터의 작업 책상) -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--purple); white-space: normal;">💾 3. 시스템 RAM & Swap — "프로그램을 펼쳐놓는 작업 책상"</div>
+        <!-- 2. GPU & VRAM 가이드 -->
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">2. GPU 및 VRAM</div>
+            <span class="badge" style="flex-shrink: 0;">하드웨어 · GPU</span>
+          </div>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--red); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--red); font-weight: 500;">주의: GPU 온도가 83~85°C를 넘으며 급격히 끊길 때</strong><br>
+              과열 보호(써멀 스로틀링)로 클럭이 강제 하락하는 현상입니다. 실행 20~30분 뒤부터 끊김이 시작된다면 온도 문제일 가능성이 높습니다.<br>
+              <span style="color: var(--text-muted);">해결: 경고 알림에서 GPU 온도 기준을 80°C로 설정하고, 본체 통풍과 먼지 상태를 점검하세요.</span>
+            </div>
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--orange); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--orange); font-weight: 500;">주의: VRAM이 90~95% 이상 포화되었을 때</strong><br>
+              비디오 메모리가 가득 차면 시점 전환 시 짧은 멈춤(스터터링)이 발생합니다.<br>
+              <span style="color: var(--text-muted);">해결: 게임 그래픽 설정에서 텍스처 품질이나 그림자 옵션을 한 단계 낮춰주세요.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 시스템 RAM & 가상 메모리(Swap) 가이드 -->
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">3. 시스템 RAM 및 Swap</div>
             <span class="badge" style="flex-shrink: 0;">통합 대시보드 / RAM 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 이럴 때 주의: RAM이 85~90%를 넘고, Swap(가상 메모리) 숫자가 크게 올라갈 때</strong><br>
-              <strong>RAM</strong>은 책상 넓이와 같습니다. 책상이 꽉 차면 컴퓨터는 어쩔 수 없이 느린 서랍장(저장장치 SSD/하드디스크, 즉 <strong>Swap</strong>)에 물건을 넣었다 뺐다 하기 시작합니다. 이때 화면 전환(알트+탭)이 엄청나게 느려지거나 게임이 갑자기 튕기게 됩니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 인터넷 브라우저(크롬, 엣지 등)는 창을 여러 개 켜두면 RAM을 엄청나게 차지합니다. 고사양 게임을 할 땐 인터넷 창을 꼭 닫아주세요.</span>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--red); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--red); font-weight: 500;">주의: RAM이 85~90%를 넘고 Swap 수치가 증가할 때</strong><br>
+              물리 메모리가 부족해 저장장치(SSD/HDD)를 대신 쓰기 시작하면 창 전환이 느려지거나 게임이 강제 종료될 수 있습니다.<br>
+              <span style="color: var(--text-muted);">해결: 고사양 게임 실행 시 브라우저 탭을 정리해 여유 메모리를 확보하세요.</span>
             </div>
-            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--neon-green);">💡 알아두면 좋은 팁: 같은 게임을 3~4시간 연속으로 했더니 점점 느려진다면?</strong><br>
-              오래 켜둔 게임이 다 쓴 책상 자리를 안 치워서 RAM이 점점 차오르는 현상입니다. 이럴 땐 <strong>게임을 한 번 껐다가 다시 켜기만 해도</strong> 처음처럼 다시 빨라집니다.
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--green); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--green); font-weight: 500;">참고: 장시간 플레이 후 점차 느려지는 경우</strong><br>
+              게임 자체의 메모리 누수로 RAM이 누적될 수 있으므로, 게임을 한 번 재시작하면 초기 상태로 회복됩니다.
             </div>
           </div>
         </div>
 
-        <!-- 4. 게임 FPS & 1% Low 가이드 (화면의 부드러움) -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--neon-green); white-space: normal;">🎮 4. 게임 FPS & 1% Low — "화면이 얼마나 매끄럽게 움직일까?"</div>
+        <!-- 4. 게임 FPS & 1% Low 가이드 -->
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">4. 게임 FPS 및 1% Low</div>
             <span class="badge" style="flex-shrink: 0;">게임 플레이 기록 / FPS 상세</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 이럴 때 주의: 평균 FPS는 120으로 높은데, '1% Low FPS'가 30~40으로 낮게 나올 때</strong><br>
-              <strong>FPS(프레임)</strong>는 1초에 화면을 몇 장 그려주는지(60 이상이면 부드러움)를 뜻합니다. 그런데 평균 점수가 120점이어도 <strong>가장 버벅거렸던 최악의 순간(1% Low)</strong>이 30점이라면, 우리 눈은 그 순간적인 멈칫거림 때문에 <em>"왜 이렇게 잔렉이 심하지?"</em>라고 느끼게 됩니다!<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 게임 설정에서 '최대 프레임 제한'을 무제한 대신 모니터 성능(예: 60 또는 144)에 맞춰 고정해 두면, 그래픽카드가 무리하지 않아 이 잔렉이 확 줄어듭니다.</span>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--red); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--red); font-weight: 500;">주의: 평균 FPS는 높지만 1% Low가 30~40으로 낮을 때</strong><br>
+              평균 프레임이 높아도 하위 1% 구간이 크게 떨어지면 체감 잔렉으로 느껴집니다.<br>
+              <span style="color: var(--text-muted);">해결: 게임 내 최대 프레임을 모니터 주사율(예: 60, 144)에 맞춰 제한하면 프레임 타임이 안정됩니다.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 보조 모니터의 다른 창을 클릭했을 때 프레임이 30~60으로 내려간다면?</strong><br>
-              CoreFlow는 <strong>NVIDIA GeForce, AMD Radeon, Intel Arc</strong> 등 제조사에 상관없이 모든 그래픽 카드를 완벽 지원하며, <strong>Windows 하드웨어 DXGI/D3D9 그래픽 출력 신호(PresentMon 표준)</strong>를 직접 정밀 측정합니다. 다른 모니터를 클릭했을 때 FPS가 내려간다면 게임 내 그래픽 옵션의 <strong>'백그라운드 최대 프레임 제한(비활성 창 FPS 제한)'</strong> 기능이 작동한 정상 현상입니다. 미등록 게임은 <strong>[🔍 게임 직접 찾기/관리]</strong>에서 <strong>[⭐ 영구 등록]</strong>해 두세요!
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--orange); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--orange); font-weight: 500;">참고: 다른 모니터 클릭 시 FPS가 낮아지는 현상</strong><br>
+              CoreFlow는 NVIDIA·AMD·Intel 모든 GPU에서 Windows DXGI/D3D9 하드웨어 출력 신호를 직접 측정합니다. 비활성 창에서 FPS가 낮아지는 것은 게임 자체의 백그라운드 프레임 제한 기능입니다. 미등록 게임은 게임 탐색에서 영구 등록할 수 있습니다.
             </div>
           </div>
         </div>
 
-        <!-- 5. 네트워크(핑/지터) & 디스크 I/O 가이드 (인터넷과 저장장치) -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--cyan); white-space: normal;">🌐 5. 인터넷 핑(Ping) · 지터 & 디스크 — "통신 렉과 로딩 렉 찾기"</div>
-            <span class="badge" style="flex-shrink: 0;">네트워크·디스크 모니터</span>
+        <!-- 5. 네트워크(핑/지터) & 디스크 I/O 가이드 -->
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">5. 네트워크 핑 · 지터 및 디스크</div>
+            <span class="badge" style="flex-shrink: 0;">네트워크 · 디스크</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(229, 57, 53, 0.1); border-left: 3px solid var(--red); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--red);">🚨 이럴 때 주의: 핑(Ping) 숫자가 높거나, '지터(흔들림)'가 15ms 이상일 때</strong><br>
-              <strong>핑(Ping)</strong>은 내 컴퓨터와 게임 서버가 신호를 주고받는 반응 속도입니다(낮을수록 좋음: 1~50ms 쾌적 / 150ms 이상 느림). 특히 <strong>지터(Jitter)</strong>가 높으면 신호 속도가 빨랐다 느렸다 널뛰기하는 상태라, 게임 캐릭터가 제자리걸음을 하거나 순간이동을 하게 됩니다.<br>
-              <span style="color: var(--text-muted);">👉 <strong>해결 방법:</strong> 와이파이(무선) 대신 랜선(유선)을 꽂거나, 뒤에서 토렌트·스팀 다운로드가 돌아가고 있는지 확인하세요.</span>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--red); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--red); font-weight: 500;">주의: 핑이 높거나 지터(Jitter)가 15ms 이상일 때</strong><br>
+              핑은 게임 서버와의 왕복 지연시간(1~50ms 양호, 150ms 이상 지연)이며, 지터가 높으면 응답 시간이 불규칙해 순간이동이나 입력 지연이 발생합니다.<br>
+              <span style="color: var(--text-muted);">해결: 유선 LAN 연결을 권장하며, 백그라운드 다운로드 여부를 확인하세요.</span>
             </div>
-            <div style="background: rgba(245, 159, 0, 0.1); border-left: 3px solid var(--orange); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--orange);">⚠️ 이럴 때 주의: 게임 중 갑자기 멈출 때 '디스크 쓰기(W)'가 수십 MB/s로 치솟아 있다면?</strong><br>
-              게임이 저장장치(SSD/하드)에서 다음 맵을 불러와야 하는데, 뒤에서 <strong>스팀 자동 업데이트나 윈도우 업데이트가 저장장치를 혼자 독차지하고 있는 상황</strong>입니다. <strong>[네트워크-디스크-모니터]</strong> 메뉴 하단 표에서 누가 디스크를 쓰고 있는지 바로 찾을 수 있습니다.
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--orange); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--orange); font-weight: 500;">주의: 게임 중 멈춤과 함께 디스크 쓰기(W)가 급증할 때</strong><br>
+              스팀·Windows 업데이트가 저장장치 대역폭을 점유하는 상황일 수 있습니다. 네트워크 · 디스크 메뉴 하단 표에서 점유 프로세스를 확인할 수 있습니다.
             </div>
           </div>
         </div>
 
         <!-- 6. 녹화 분석 리포트 & 미니 HUD 가이드 -->
-        <div class="card" style="overflow: visible; padding: 18px; gap: 10px;">
-          <div class="card-header" style="margin-bottom: 2px;">
-            <div class="card-title" style="font-size: 15px; color: var(--text-normal); white-space: normal;">📊 6. 녹화 분석 & 미니 HUD — "게임 중 렉 걸린 범인 나중에 찾기"</div>
+        <div class="card" style="overflow: visible; padding: 20px; gap: 12px;">
+          <div class="card-header">
+            <div class="card-title" style="font-size: 14px; color: var(--text-normal); white-space: normal;">6. 녹화 분석 및 미니 HUD</div>
             <span class="badge" style="flex-shrink: 0;">녹화 분석 / 미니 HUD</span>
           </div>
-          <div style="font-size: 12.5px; color: var(--text-normal); line-height: 1.65; display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: rgba(var(--brand-rgb), 0.1); border-left: 3px solid var(--brand); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--brand);">🔍 꿀팁 1: "아까 한타할 때 잠깐 끊겼는데 도대체 왜 그랬지?" (블랙박스 녹화 기능)</strong><br>
-              게임에 집중할 때는 이 화면을 쳐다볼 수 없죠! 게임 시작 전에 상단 <strong>[🔴 녹화 시작]</strong> 버튼만 눌러두세요. 게임이 끝난 뒤 <strong>[📊 분석 리포트]</strong>를 열면, 자동차 블랙박스처럼 <strong>아까 렉이 걸렸던 바로 그 시간에 온도가 튀었는지, 어떤 프로그램이 범인이었는지</strong> 마우스만 올려서 한눈에 찾아낼 수 있습니다.
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--brand); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--brand); font-weight: 500;">구간 녹화 및 사후 원인 분석</strong><br>
+              게임 시작 전 도구 메뉴에서 녹화를 켜고 종료 후 분석 리포트를 열면, 프레임이 떨어진 시점의 온도·부하·점유 프로세스를 타임라인에서 확인할 수 있습니다.
             </div>
-            <div style="background: rgba(0, 200, 117, 0.08); border-left: 3px solid var(--neon-green); padding: 10px 12px; border-radius: 6px;">
-              <strong style="color: var(--neon-green);">🗗 꿀팁 2: 화면 구석에 작게 띄워두는 '미니 HUD (단축키 F10)'</strong><br>
-              창이 너무 커서 부담스러울 땐 키보드 <strong><code>F10</code></strong> 키를 눌러보세요! 다른 창에 가려지지 않는 <strong>작고 예쁜 미니 상태창</strong>으로 변신하며, 한번 더 <code>F10</code>을 누르면 원래 크기로 돌아옵니다.
+            <div style="background: var(--bg-elevated); border-left: 3px solid var(--green); padding: 12px; border-radius: 8px;">
+              <strong style="color: var(--green); font-weight: 500;">미니 HUD 단축키 (<span class="kbd">F10</span>)</strong><br>
+              <span class="kbd">F10</span>을 누르면 항상 위에 고정되는 컴팩트 상태창으로 전환되며, 다시 누르면 원래 창으로 복귀합니다.
             </div>
           </div>
         </div>
@@ -10046,52 +10231,46 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   </div>
 
   <!-- 통신 지연 / 오류 발생 시 안내 및 즉시 복구 오버레이 -->
-  <div id="error-fallback-overlay" class="hidden" style="position: fixed; inset: 0; z-index: 99999; background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.2s ease;">
-    <div style="background: var(--bg-card); border: 1.5px solid rgba(229, 57, 53, 0.45); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05); border-radius: 16px; max-width: 540px; width: 100%; overflow: hidden; display: flex; flex-direction: column;">
+  <div id="error-fallback-overlay" class="hidden" style="position: fixed; inset: 0; z-index: 99999; background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 180ms var(--ease);">
+    <div style="background: var(--bg-card); border: 1px solid rgba(229, 72, 77, 0.4); box-shadow: var(--popover-shadow); border-radius: 14px; max-width: 520px; width: 100%; overflow: hidden; display: flex; flex-direction: column;">
       
       <!-- 상단 헤더 -->
-      <div style="background: linear-gradient(135deg, rgba(229, 57, 53, 0.18) 0%, rgba(245, 159, 0, 0.12) 100%); border-bottom: 1px solid var(--border-subtle); padding: 20px 24px; display: flex; align-items: center; gap: 14px;">
-        <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(229, 57, 53, 0.2); border: 1px solid rgba(229, 57, 53, 0.4); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0;">
-          ⚠️
+      <div style="background: rgba(229, 72, 77, 0.1); border-bottom: 1px solid var(--border-subtle); padding: 20px 24px; display: flex; align-items: center; gap: 14px;">
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(229, 72, 77, 0.16); border: 1px solid rgba(229, 72, 77, 0.35); display: flex; align-items: center; justify-content: center; color: var(--red); flex-shrink: 0;">
+          <svg class="ico" style="width: 20px; height: 20px;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
         </div>
         <div>
-          <div style="font-size: 17px; font-weight: 800; color: var(--text-normal); letter-spacing: -0.3px;">
-            모니터링 연결 지연 또는 오류 안내
+          <div style="font-size: 16px; font-weight: 600; color: var(--text-normal);">
+            모니터링 연결 지연
           </div>
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-            CoreFlow 시스템 백엔드 엔진과의 통신이 일시적으로 중단되었습니다
+            백엔드 수집 엔진과의 통신이 일시적으로 중단되었습니다
           </div>
         </div>
       </div>
 
       <!-- 본문 내용 -->
-      <div style="padding: 22px 24px; display: flex; flex-direction: column; gap: 16px;">
-        <div style="font-size: 13px; line-height: 1.6; color: var(--text-normal);">
-          윈도우 절전 모드 복귀, 게임/프로그램 전체화면 전환 중 순간 부하, 또는 백그라운드 엔진의 일시적인 응답 지연으로 발생할 수 있습니다.
+      <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div style="font-size: 13px; line-height: 1.6; color: var(--text-secondary);">
+          절전 모드 복귀, 전체화면 전환 중 순간 부하, 또는 일시적인 응답 지연으로 발생할 수 있습니다.
         </div>
 
         <!-- 오류 세부 내용 -->
-        <div id="error-fallback-detail-box" style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; font-size: 11.5px; color: var(--text-muted); font-family: Consolas, monospace; word-break: break-all; max-height: 70px; overflow-y: auto;">
+        <div id="error-fallback-detail-box" style="background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; max-height: 72px; overflow-y: auto;">
           연결 상태: 응답 대기 시간 초과 (Connection Timeout)
         </div>
 
-        <div style="background: rgba(var(--brand-rgb), 0.08); border-left: 3px solid var(--brand); padding: 10px 14px; border-radius: 6px; font-size: 12px; color: var(--text-normal); line-height: 1.5;">
-          💡 <strong>원클릭 재시작</strong>을 누르면 기존 설정(기록/테마/미니 HUD)은 안전하게 유지된 채 CoreFlow 엔진이 깨끗하게 다시 시작됩니다.
+        <div style="background: var(--bg-elevated); border-left: 3px solid var(--brand); padding: 12px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+          <strong>재시작</strong>을 누르면 기존 설정(기록·테마·미니 HUD)을 유지한 채 엔진을 다시 시작합니다.
         </div>
       </div>
 
       <!-- 하단 액션 버튼 영역 -->
-      <div style="background: var(--bg-secondary); border-top: 1px solid var(--border-subtle); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
-        <button class="btn secondary" onclick="openHelpFromError()" style="font-size: 12px; padding: 8px 13px;">
-          ❓ 진단 가이드 보기
-        </button>
+      <div style="background: var(--bg-tertiary); border-top: 1px solid var(--border-subtle); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+        <button class="btn secondary" onclick="openHelpFromError()">진단 가이드</button>
         <div style="display: flex; gap: 8px;">
-          <button id="btn-retry-conn" class="btn secondary" onclick="retryConnectionNow()" style="font-size: 12.5px; padding: 8px 14px;">
-            ⚡ 다시 연결 시도
-          </button>
-          <button id="btn-restart-app" class="btn" onclick="restartCoreFlowApp()" style="font-size: 12.5px; padding: 8px 16px; background-color: var(--brand); font-weight: 700;">
-            🔄 프로그램 즉시 재시작
-          </button>
+          <button id="btn-retry-conn" class="btn secondary" onclick="retryConnectionNow()">다시 연결</button>
+          <button id="btn-restart-app" class="btn" onclick="restartCoreFlowApp()">프로그램 재시작</button>
         </div>
       </div>
 
@@ -10101,10 +10280,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   <!-- 프로세스 우클릭 커스텀 컨텍스트 메뉴 -->
   <div id="ctx-menu" class="ctx-menu hidden">
     <div id="ctx-header" class="ctx-header">process.exe (PID: 0)</div>
-    <button class="ctx-item danger" onclick="killContextProcess()">🛑 프로세스 강제 종료 (Kill)</button>
-    <button class="ctx-item" onclick="targetContextProcess()">🎯 FPS 모니터링 대상으로 지정</button>
-    <button class="ctx-item" onclick="registerContextAsCustomGame()">⭐ 이 프로세스를 게임으로 영구 등록 (자동 감지)</button>
-    <button class="ctx-item" onclick="copyContextPid()">📋 PID 복사</button>
+    <button class="ctx-item danger" onclick="killContextProcess()">프로세스 강제 종료 (Kill)</button>
+    <button class="ctx-item" onclick="targetContextProcess()">FPS 모니터링 대상으로 지정</button>
+    <button class="ctx-item" onclick="registerContextAsCustomGame()">게임으로 영구 등록 (자동 감지)</button>
+    <button class="ctx-item" onclick="copyContextPid()">PID 복사</button>
   </div>
 
   <!-- 하단 상태 토스트 알림 -->
@@ -10672,7 +10851,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const willOpen = pop.classList.contains('hidden');
     pop.classList.toggle('hidden', !willOpen);
     if (btn) btn.classList.toggle('open', willOpen);
-    if (arrow) arrow.textContent = willOpen ? '▴' : '▾';
+    if (arrow) arrow.style.transform = willOpen ? 'rotate(180deg)' : 'rotate(0deg)';
   }
 
   function closeTopToolsMenu() {
@@ -10681,7 +10860,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const arrow = document.getElementById('top-tools-arrow');
     if (pop) pop.classList.add('hidden');
     if (btn) btn.classList.remove('open');
-    if (arrow) arrow.textContent = '▾';
+    if (arrow) arrow.style.transform = 'rotate(0deg)';
   }
 
   document.addEventListener('click', (e) => {
@@ -10780,10 +10959,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const pct = pomoTotal > 0 ? ((pomoTotal - pomoRemaining) / pomoTotal) * 100 : 0;
     document.getElementById('pomo-bar').style.width = `${pct.toFixed(1)}%`;
     document.getElementById('pomo-start-btn').textContent = pomoRunning ? '일시정지' : '시작';
-    document.getElementById('pomo-status-badge').textContent = pomoRunning ? '진행 중 🔥' : '일시정지';
+    document.getElementById('pomo-status-badge').textContent = pomoRunning ? '진행 중' : '일시정지';
     document.getElementById('pomo-mode-title').textContent = pomoIsBreak
-      ? '☕ 휴식 타이머 (5분)'
-      : '🍅 뽀모도로 집중 타이머 (25분)';
+      ? '휴식 타이머 (5분)'
+      : '집중 타이머 (25분)';
   }
 
   function togglePomodoro() {
@@ -10877,8 +11056,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const cardProd = document.getElementById('card-productivity');
 
     if (tab === 'overview') {
-      document.getElementById('top-title').textContent = '통합-대시보드';
-      document.getElementById('top-desc').textContent = 'CPU • GPU • 네트워크/디스크 • 게임 FPS & 실행 시간 실시간 모니터';
+      document.getElementById('top-title').textContent = '통합 대시보드';
+      document.getElementById('top-desc').textContent = 'CPU · GPU · 네트워크 · 게임 FPS 실시간 계측';
       secMetrics.classList.remove('hidden');
       if (secNetdiskStrip) secNetdiskStrip.classList.remove('hidden');
       secCores.classList.add('hidden');
@@ -10890,8 +11069,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       cardProd.classList.remove('hidden');
       applyUiPrefs(false);
     } else if (tab === 'system') {
-      document.getElementById('top-title').textContent = '하드웨어-GPU-상세';
-      document.getElementById('top-desc').textContent = '논리 코어별 부하 • GPU 전력/클럭 • 전체 프로세스';
+      document.getElementById('top-title').textContent = '하드웨어 · GPU';
+      document.getElementById('top-desc').textContent = '논리 코어별 부하 · GPU 전력 및 클럭 · 전체 프로세스';
       secMetrics.classList.remove('hidden');
       secMetrics.style.gridTemplateColumns = '';
       ['card-metric-cpu', 'card-metric-mem', 'card-metric-gpu', 'card-metric-fps'].forEach(id => {
@@ -10907,8 +11086,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       cardProc.classList.remove('hidden');
       cardProd.classList.add('hidden');
     } else if (tab === 'netdisk') {
-      document.getElementById('top-title').textContent = '네트워크-디스크-모니터';
-      document.getElementById('top-desc').textContent = '실시간 다운로드/업로드 속도 • 핑(Ping/Jitter) • 드라이브 용량 및 디스크 I/O';
+      document.getElementById('top-title').textContent = '네트워크 · 디스크';
+      document.getElementById('top-desc').textContent = '다운로드/업로드 속도 · Ping/Jitter · 드라이브 용량 및 I/O';
       secMetrics.classList.add('hidden');
       if (secNetdiskStrip) secNetdiskStrip.classList.add('hidden');
       secCores.classList.add('hidden');
@@ -10917,8 +11096,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (secNetdisk) secNetdisk.classList.remove('hidden');
       renderNetDiskDashboard();
     } else if (tab === 'gamelog') {
-      document.getElementById('top-title').textContent = '게임-플레이-기록';
-      document.getElementById('top-desc').textContent = '게임별 실행 시간(시:분:초) 로그 및 최근 가장 많이 플레이한 게임 분석';
+      document.getElementById('top-title').textContent = '게임 플레이 기록';
+      document.getElementById('top-desc').textContent = '게임별 실행 시간 기록 및 최근 플레이 통계';
       secMetrics.classList.add('hidden');
       if (secNetdiskStrip) secNetdiskStrip.classList.add('hidden');
       secCores.classList.add('hidden');
@@ -10927,8 +11106,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       if (secNetdisk) secNetdisk.classList.add('hidden');
       renderGameLogDashboard();
     } else if (tab === 'productivity') {
-      document.getElementById('top-title').textContent = '뽀모도로-할일-보드';
-      document.getElementById('top-desc').textContent = '집중 타이머 & 할 일 체크리스트';
+      document.getElementById('top-title').textContent = '집중 타이머 · 할 일';
+      document.getElementById('top-desc').textContent = '집중 타이머 및 할 일 체크리스트';
       secMetrics.classList.add('hidden');
       if (secNetdiskStrip) secNetdiskStrip.classList.add('hidden');
       secCores.classList.add('hidden');
@@ -11013,7 +11192,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const pingStatusBadge = document.getElementById('nd-ping-status-badge');
     const pingValEl = document.getElementById('nd-ping-ms');
     if (!online) {
-      pingStatusBadge.textContent = '연결 끊김 🔴';
+      pingStatusBadge.textContent = '연결 끊김';
       pingStatusBadge.style.color = 'var(--red)';
       pingValEl.textContent = '오프라인';
       pingValEl.style.color = 'var(--red)';
@@ -11021,23 +11200,23 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       pingValEl.textContent = `${pingMs.toFixed(1)} ms`;
       if (net.is_game_ping) {
         if (pingMs < 45) {
-          pingStatusBadge.textContent = '인게임 최적 🟢';
-          pingStatusBadge.style.color = 'var(--neon-green)';
-          pingValEl.style.color = 'var(--neon-green)';
+          pingStatusBadge.textContent = '인게임 최적';
+          pingStatusBadge.style.color = 'var(--green)';
+          pingValEl.style.color = 'var(--text-normal)';
         } else if (pingMs < 115) {
-          pingStatusBadge.textContent = '인게임 양호 🟡';
+          pingStatusBadge.textContent = '인게임 양호';
           pingStatusBadge.style.color = 'var(--yellow)';
-          pingValEl.style.color = 'var(--yellow)';
+          pingValEl.style.color = 'var(--text-normal)';
         } else {
-          pingStatusBadge.textContent = '로비/대기 중 🌐';
-          pingStatusBadge.style.color = 'var(--cyan)';
-          pingValEl.style.color = 'var(--cyan)';
+          pingStatusBadge.textContent = '로비 / 대기';
+          pingStatusBadge.style.color = 'var(--text-secondary)';
+          pingValEl.style.color = 'var(--text-normal)';
         }
       } else {
         if (pingMs < 35) {
-          pingStatusBadge.textContent = '쾌적 🟢';
-          pingStatusBadge.style.color = 'var(--neon-green)';
-          pingValEl.style.color = 'var(--neon-green)';
+          pingStatusBadge.textContent = '양호';
+          pingStatusBadge.style.color = 'var(--green)';
+          pingValEl.style.color = 'var(--text-normal)';
         } else if (pingMs < 80) {
           pingStatusBadge.textContent = '양호 🟡';
           pingStatusBadge.style.color = 'var(--yellow)';
@@ -12220,10 +12399,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         tempEl.style.color = tempC >= 78 ? 'var(--red)' : (tempC >= 65 ? 'var(--yellow)' : 'var(--neon-green)');
       }
 
-      document.getElementById('gpu-power-pill').textContent = `⚡ ${(g.power_w || 0).toFixed(1)} W`;
-      document.getElementById('gpu-clock-pill').textContent = `⏱️ ${g.clock_mhz || 0} MHz`;
+      document.getElementById('gpu-power-pill').textContent = `${(g.power_w || 0).toFixed(1)} W`;
+      document.getElementById('gpu-clock-pill').textContent = `${g.clock_mhz || 0} MHz`;
       document.getElementById('gpu-vram-pct-pill').textContent = `VRAM ${vramPct.toFixed(0)}%`;
-      document.getElementById('mini-status').textContent = `CPU ${d.cpu.toFixed(0)}%${cpuTempC ? ` (${cpuTempC.toFixed(0)}°C)` : ''} • GPU ${gpuUsage.toFixed(0)}%${tempC > 0 ? ` (${tempC.toFixed(0)}°C)` : ''}`;
+      document.getElementById('mini-status').textContent = `CPU ${d.cpu.toFixed(0)}%${cpuTempC ? ` (${cpuTempC.toFixed(0)}°C)` : ''} · GPU ${gpuUsage.toFixed(0)}%${tempC > 0 ? ` (${tempC.toFixed(0)}°C)` : ''}`;
 
       gpuHistory.push(gpuUsage);
       if (gpuHistory.length > 60) gpuHistory.shift();
@@ -12279,31 +12458,31 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('fps-value').textContent = isGameRunning ? `${activeFps} FPS` : `0 FPS`;
       document.getElementById('fps-frametime').textContent = isGameRunning ? `${activeMs.toFixed(1)} ms` : `대기 중`;
       document.getElementById('fps-bar').style.width = isGameRunning ? `${Math.min(100, (activeFps / 165) * 100)}%` : `0%`;
-      document.getElementById('fps-low-pill').textContent = `1% Low: ${low1Pct} FPS`;
+      document.getElementById('fps-low-pill').textContent = `1% Low ${low1Pct}`;
       const playtimePill = document.getElementById('fps-playtime-pill');
       if (playtimePill) {
-        playtimePill.textContent = `⏱️ ${activeRunHMS}`;
-        playtimePill.style.color = isGameRunning ? 'var(--neon-green)' : 'var(--text-muted)';
+        playtimePill.textContent = activeRunHMS;
+        playtimePill.style.color = isGameRunning ? 'var(--green)' : 'var(--text-muted)';
       }
       document.getElementById('fps-target-name').textContent = targetLabel;
 
       const badgeEl = document.getElementById('fps-mode-badge');
-      badgeEl.textContent = isGameRunning ? `LIVE 🔴 ${activeRunHMS}` : 'IDLE';
-      badgeEl.style.color = isGameRunning ? 'var(--neon-green)' : 'var(--text-muted)';
+      badgeEl.textContent = isGameRunning ? `LIVE · ${activeRunHMS}` : 'IDLE';
+      badgeEl.style.color = isGameRunning ? 'var(--green)' : 'var(--text-muted)';
 
-      document.getElementById('sidebar-game-header').textContent = isGameRunning ? '🎮 PLAYING A GAME' : '🎮 GAME MONITOR';
+      document.getElementById('sidebar-game-header').textContent = isGameRunning ? '게임 실행 중' : '게임 모니터';
       document.getElementById('sidebar-game-name').textContent = isGameRunning ? targetLabel : '실행 중인 게임 없음';
       const sideFpsEl = document.getElementById('sidebar-game-fps');
       sideFpsEl.textContent = isGameRunning
-        ? `실시간 ${activeFps} FPS (${activeMs.toFixed(1)} ms)`
-        : '게임 실행 시 실시간 FPS가 표시됩니다';
-      sideFpsEl.style.color = isGameRunning ? 'var(--neon-green)' : 'var(--text-muted)';
+        ? `${activeFps} FPS (${activeMs.toFixed(1)} ms)`
+        : '게임 실행 시 실시간 FPS 표시';
+      sideFpsEl.style.color = isGameRunning ? 'var(--green)' : 'var(--text-muted)';
 
       const sideTimeEl = document.getElementById('sidebar-game-time');
       if (sideTimeEl) {
         sideTimeEl.textContent = isGameRunning
-          ? `⏱️ 실행 시간: ${activeRunHMS}`
-          : (latestGameLogs.length > 0 ? `최근 기록: ${latestGameLogs[0].name} (${formatHMS(latestGameLogs[0].duration_secs)})` : '⏱️ 실행 시간: 00:00:00');
+          ? activeRunHMS
+          : (latestGameLogs.length > 0 ? `최근: ${latestGameLogs[0].name} (${formatHMS(latestGameLogs[0].duration_secs)})` : '00:00:00');
         sideTimeEl.style.color = isGameRunning ? 'var(--brand)' : 'var(--text-muted)';
       }
 
