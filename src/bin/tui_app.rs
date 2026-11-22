@@ -2680,6 +2680,24 @@ fn is_blacklisted_system_process(exe_lower: &str) -> bool {
         || exe_lower.contains("phoneexperience")
         || exe_lower.contains("crossdevice")
         || exe_lower.contains("capturehost")
+        // 동영상·미디어 플레이어 제외 (DXGI 하드웨어 가속으로 게임 오탐 방지)
+        || exe_lower.contains("potplayer")
+        || exe_lower.contains("kmplayer")
+        || exe_lower.contains("gomplayer")
+        || exe_lower.contains("mpc-hc")
+        || exe_lower.contains("mpc-be")
+        || exe_lower.contains("smplayer")
+        || exe_lower.contains("bsplayer")
+        || exe_lower.contains("zoomplayer")
+        || exe_lower.contains("powerdvd")
+        || exe_lower.contains("cyberlink")
+        || exe_lower.contains("mediaplayer")
+        || exe_lower.contains("media.player")
+        || exe_lower.contains("video.ui")
+        || exe_lower.contains("zunevideo")
+        || exe_lower.contains("jellyfin")
+        || exe_lower.contains("plex")
+        || exe_lower.contains("kodi")
     {
         return true;
     }
@@ -2719,11 +2737,15 @@ fn is_blacklisted_system_process(exe_lower: &str) -> bool {
         "broadcastdvrserver.exe", "bcastdvr.exe", "textinputhost.exe", "phoneexperiencehost.exe",
         "crossdeviceservice.exe", "widgets.exe", "searchapp.exe", "searchui.exe", "cortana.exe",
         "obs64.exe", "obs32.exe", "obs.exe", "bandicam.exe", "bdcam.exe",
+        // 동영상·미디어 플레이어 (DXGI 하드웨어 가속 오탐 차단)
+        "vlc.exe", "mpv.exe", "mpvnet.exe", "gom.exe", "gom64.exe",
+        "kmp.exe", "kmp64.exe", "wmplayer.exe", "microsoft.media.player.exe",
+        "video.ui.exe", "quicktimeplayer.exe", "iina", "movist", "vlc", "mpv",
     ];
     BLACKLIST.iter().any(|b| exe_lower == *b)
 }
 
-/// 창 제목(Title) 기반 비게임 창(캡처 도구, 화면 캡처, 시스템 유틸리티, 런처 등) 확인
+/// 창 제목(Title) 기반 비게임 창(캡처 도구, 화면 캡처, 동영상 플레이어, 시스템 유틸리티, 런처 등) 확인
 fn is_non_game_window_title(title: &str) -> bool {
     let t = title.trim().to_lowercase();
     if t.is_empty() {
@@ -2751,6 +2773,30 @@ fn is_non_game_window_title(title: &str) -> bool {
         || t.contains("task manager")
         || t.contains("설정")
         || t.contains("settings")
+        // 동영상·미디어 플레이어 창 제목 및 영상 파일 확장자 제외
+        || t.contains("potplayer")
+        || t.contains("팟플레이어")
+        || t.contains("vlc media player")
+        || t.contains("곰플레이어")
+        || t.contains("gom player")
+        || t.contains("kmplayer")
+        || t.contains("mpc-hc")
+        || t.contains("mpc-be")
+        || t.contains("미디어 플레이어")
+        || t.contains("media player")
+        || t.contains("영화 및 tv")
+        || t.contains("movies & tv")
+        || t.contains("powerdvd")
+        || t.contains(".mp4")
+        || t.contains(".mkv")
+        || t.contains(".avi")
+        || t.contains(".mov")
+        || t.contains(".wmv")
+        || t.contains(".webm")
+        || t.contains(".m4v")
+        || t.contains(".flv")
+        || t.contains(".mpeg")
+        || t.contains(".mpg")
 }
 
 /// 게임이 아닌 런처/서포트/공유 라이브러리 디렉토리 제외 여부 확인
@@ -7895,6 +7941,48 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     min-height: 0;
   }
 
+  .gamelog-view .grid-4 .metric-sub {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.4;
+    word-break: keep-all;
+  }
+
+  .strip-drive-list {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .strip-drive-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .strip-drive-letter {
+    font-weight: 600;
+    color: var(--brand);
+  }
+
+  .strip-drive-pct {
+    font-weight: 600;
+  }
+
+  .strip-drive-free {
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
   .rank-list {
     display: flex;
     flex-direction: column;
@@ -8156,6 +8244,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
     padding: 8px 10px;
+    gap: 3px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -8170,29 +8259,32 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 6px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .mini-hud-val {
-    font-size: clamp(14px, 3.6vw, 18px);
+    font-size: clamp(14px, 2.8vw, 17px);
     font-weight: 600;
     color: var(--text-normal);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.15;
+    line-height: 1.2;
   }
 
   .mini-hud-sub {
     font-size: 11px;
-    color: var(--text-muted);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.25;
   }
 
   .mini-btn {
@@ -8710,7 +8802,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <input type="file" id="avatar-file-input" accept="image/*" style="display:none" onchange="onUploadCustomAvatar(event)">
         <div style="min-width: 0; flex: 1;">
           <div class="user-name" id="sidebar-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Windows User</div>
-          <div class="user-tag" id="mini-status" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">CPU 0% · GPU 0%</div>
+          <div class="user-tag" id="mini-status" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">로컬 계측 활성</div>
         </div>
       </div>
       <button class="icon-btn danger" onclick="quitApp()" title="프로그램 종료">
@@ -8973,7 +9065,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
           <div class="stat-pills" style="justify-content: space-between; align-items: center;">
             <span class="stat-pill" id="fps-low-pill">1% Low 0</span>
             <span class="stat-pill" id="fps-playtime-pill">00:00:00</span>
-            <span class="stat-pill" id="fps-target-name" style="max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">게임 없음</span>
+            <span class="stat-pill" id="fps-target-name" style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">게임 없음</span>
           </div>
           <div class="metric-num-grid" id="fps-num-grid">
             <div class="num-cell">
@@ -9137,49 +9229,48 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <div class="grid-4">
           <div class="card">
             <div class="card-header">
-              <div class="card-title">현재 실행 게임</div>
+              <div class="card-title">실행 중인 게임</div>
               <span class="badge" id="gl-active-badge">IDLE</span>
             </div>
             <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
               <div class="metric-big" id="gl-active-timer">00:00:00</div>
-              <div class="metric-sub" id="gl-active-fps">대기 중</div>
+              <div class="metric-sub" id="gl-active-fps" style="white-space: nowrap;">대기 중</div>
             </div>
             <div class="metric-sub" id="gl-active-name" style="font-weight: 500; color: var(--text-normal);">실행 중인 게임 없음</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">최다 플레이 게임</div>
+              <div class="card-title">최다 플레이</div>
               <span class="badge" id="gl-top-share-badge">점유율 0%</span>
             </div>
             <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
-              <div class="metric-big" id="gl-top-game-name">기록 없음</div>
+              <div class="metric-big" id="gl-top-game-name" style="font-size: clamp(18px, 1.5vw, 22px);">기록 없음</div>
             </div>
             <div class="metric-sub" id="gl-top-game-time">누적 00:00:00 (0회)</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">오늘 / 7일 플레이</div>
-              <span class="badge">HH:MM:SS</span>
+              <div class="card-title">오늘 플레이</div>
             </div>
             <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
               <div class="metric-big" id="gl-today-time">00:00:00</div>
-              <div class="metric-sub">오늘 누적</div>
+              <div class="metric-sub" style="white-space: nowrap;">오늘 누적</div>
             </div>
-            <div class="metric-sub" id="gl-week-time">최근 7일: 00:00:00</div>
+            <div class="metric-sub" id="gl-week-time">최근 7일 00:00:00</div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <div class="card-title">전체 누적 기록</div>
+              <div class="card-title">전체 누적</div>
               <span class="badge" id="gl-total-games-badge">0개 게임</span>
             </div>
             <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0;">
               <div class="metric-big" id="gl-total-time">00:00:00</div>
-              <div class="metric-sub" id="gl-total-sessions">총 0회</div>
+              <div class="metric-sub" id="gl-total-sessions" style="white-space: nowrap;">총 0회</div>
             </div>
-            <div class="metric-sub" style="font-family: var(--font-mono);">logs/game_play_log.tsv</div>
+            <div class="metric-sub" style="font-family: var(--font-mono); font-size: 11px;">logs/game_play_log.tsv</div>
           </div>
         </div>
 
@@ -11469,15 +11560,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       const top1 = rankedGames[0];
       const sharePct = periodSumSecs > 0 ? ((top1.totalSecs / periodSumSecs) * 100).toFixed(0) : 100;
       document.getElementById('gl-top-share-badge').textContent = `점유율 ${sharePct}%`;
-      document.getElementById('gl-top-game-name').textContent = `👑 ${top1.name}`;
-      const perfSummary = top1.avgFps > 0
-        ? ` • 평균 ${top1.avgFps.toFixed(0)} FPS (1% Low ${top1.low1Fps.toFixed(0)}) • 최고 ${top1.maxGpuTemp.toFixed(0)}°C`
+      document.getElementById('gl-top-game-name').textContent = top1.name;
+      const perfLine = top1.avgFps > 0
+        ? `<br>평균 ${top1.avgFps.toFixed(0)} FPS (1%L ${top1.low1Fps.toFixed(0)}) · 최고 ${top1.maxGpuTemp.toFixed(0)}°C`
         : '';
-      document.getElementById('gl-top-game-time').textContent = `누적 ${formatHMS(top1.totalSecs)} (${top1.sessions}회)${perfSummary}`;
+      document.getElementById('gl-top-game-time').innerHTML = `누적 ${formatHMS(top1.totalSecs)} (${top1.sessions}회)${perfLine}`;
     } else {
       document.getElementById('gl-top-share-badge').textContent = '점유율 0%';
       document.getElementById('gl-top-game-name').textContent = '기록 없음';
-      document.getElementById('gl-top-game-time').textContent = '누적 00:00:00 (0회 실행)';
+      document.getElementById('gl-top-game-time').textContent = '누적 00:00:00 (0회)';
     }
 
     // 좌측 랭킹 리스트 렌더링
@@ -11485,23 +11576,22 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (rankedGames.length === 0) {
       rankListEl.innerHTML = `
         <div class="empty-state-box">
-          <div style="font-size: 28px;">🎮</div>
-          <div style="font-weight: 700; color: var(--text-normal);">선택한 기간에 기록된 게임 플레이 내역이 없습니다</div>
-          <div>게임을 실행하면 자동으로 감지되어 <strong>시:분:초(HH:MM:SS)</strong> 단위로 플레이 시간과 <strong>평균 FPS / 1% Low / 최고 GPU 온도</strong>가 자동 기록됩니다.<br>또는 [통합-대시보드]의 상위 프로세스에서 원하는 프로그램을 우클릭해 <strong>FPS 타겟으로 지정</strong>해 보세요!</div>
+          <div style="font-weight: 500; color: var(--text-normal);">선택한 기간에 기록된 게임 플레이 내역이 없습니다</div>
+          <div>게임을 실행하면 자동으로 감지되어 <strong>시:분:초(HH:MM:SS)</strong> 단위로 플레이 시간과 <strong>평균 FPS / 1% Low / 최고 GPU 온도</strong>가 기록됩니다.<br>또는 통합 대시보드의 상위 프로세스에서 우클릭해 <strong>FPS 타겟으로 지정</strong>할 수 있습니다.</div>
         </div>
       `;
     } else {
       rankListEl.innerHTML = rankedGames.map((g, idx) => {
         const share = periodSumSecs > 0 ? (g.totalSecs / periodSumSecs) * 100 : 0;
         const rankClass = idx === 0 ? 'top-1' : (idx === 1 ? 'top-2' : (idx === 2 ? 'top-3' : ''));
-        const badgeLabel = idx === 0 ? '🥇 1위' : (idx === 1 ? '🥈 2위' : (idx === 2 ? '🥉 3위' : `#${idx + 1}`));
-        const lastDateStr = g.active ? '현재 플레이 중 🔴' : formatSessionTimeRange(g.lastTs, g.lastTs, false).split(' ~ ')[0];
+        const badgeLabel = `#${idx + 1}`;
+        const lastDateStr = g.active ? '현재 플레이 중' : formatSessionTimeRange(g.lastTs, g.lastTs, false).split(' ~ ')[0];
         const fpsBadgeHtml = g.avgFps > 0
-          ? `<span class="badge" style="color:var(--brand); font-variant-numeric:tabular-nums;">🎯 평균 ${g.avgFps.toFixed(0)} FPS · 1% Low ${g.low1Fps.toFixed(0)}</span>`
+          ? `<span class="badge" style="color:var(--brand); font-variant-numeric:tabular-nums;">평균 ${g.avgFps.toFixed(0)} FPS · 1% Low ${g.low1Fps.toFixed(0)}</span>`
           : `<span class="badge" style="color:var(--text-muted)">FPS 집계 대기</span>`;
-        const tempColor = g.maxGpuTemp >= 80 ? 'var(--red)' : (g.maxGpuTemp >= 70 ? 'var(--orange)' : 'var(--neon-green)');
+        const tempColor = g.maxGpuTemp >= 80 ? 'var(--red)' : (g.maxGpuTemp >= 70 ? 'var(--orange)' : 'var(--green)');
         const tempBadgeHtml = g.maxGpuTemp > 0
-          ? `<span class="badge" style="color:${tempColor}; font-variant-numeric:tabular-nums;">🌡️ 최고 GPU ${g.maxGpuTemp.toFixed(0)}°C (${g.maxGpuUsage.toFixed(0)}%)</span>`
+          ? `<span class="badge" style="color:${tempColor}; font-variant-numeric:tabular-nums;">최고 GPU ${g.maxGpuTemp.toFixed(0)}°C (${g.maxGpuUsage.toFixed(0)}%)</span>`
           : '';
         return `
           <div class="rank-item ${rankClass}">
@@ -11510,12 +11600,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 <span class="rank-badge ${idx === 0 ? 'gold' : ''}">${badgeLabel}</span>
                 ${g.exe ? procIconHtml(g.exe, 16) : ''}
                 <span class="rank-title">${escapeHtml(g.name)}</span>
-                ${g.active ? '<span class="badge" style="color:var(--neon-green)">LIVE 🔴</span>' : ''}
+                ${g.active ? '<span class="badge" style="color:var(--green)">LIVE</span>' : ''}
               </div>
               <span class="rank-time-hms">${formatHMS(g.totalSecs)}</span>
             </div>
-            <div class="progress-track" style="height: 8px;">
-              <div class="progress-fill" style="width: ${Math.min(100, share).toFixed(1)}%; background: ${idx === 0 ? 'linear-gradient(90deg, #f59f00, #ff6b00)' : 'var(--brand)'};"></div>
+            <div class="progress-track" style="height: 6px;">
+              <div class="progress-fill" style="width: ${Math.min(100, share).toFixed(1)}%; background: var(--brand);"></div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:2px;">
               ${fpsBadgeHtml}
@@ -11741,15 +11831,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (miniHudWideLayout) {
       const cols = visibleCount;
       const rows = 1;
-      const w = Math.max(240, Math.min(820, visibleCount * 126 + 24));
-      const h = 168;
+      const w = Math.max(280, Math.min(980, visibleCount * 156 + 28));
+      const h = 196;
       return { w, h, cols, rows, visibleCount };
     } else {
-      if (visibleCount <= 1) return { w: 240, h: 168, cols: 1, rows: 1, visibleCount };
-      if (visibleCount === 2) return { w: 340, h: 168, cols: 2, rows: 1, visibleCount };
-      if (visibleCount === 3) return { w: 450, h: 168, cols: 3, rows: 1, visibleCount };
-      if (visibleCount === 4) return { w: 360, h: 265, cols: 2, rows: 2, visibleCount };
-      return { w: 450, h: 265, cols: 3, rows: 2, visibleCount };
+      if (visibleCount <= 1) return { w: 280, h: 196, cols: 1, rows: 1, visibleCount };
+      if (visibleCount === 2) return { w: 400, h: 196, cols: 2, rows: 1, visibleCount };
+      if (visibleCount === 3) return { w: 540, h: 196, cols: 3, rows: 1, visibleCount };
+      if (visibleCount === 4) return { w: 420, h: 312, cols: 2, rows: 2, visibleCount };
+      return { w: 540, h: 312, cols: 3, rows: 2, visibleCount };
     }
   }
 
@@ -12109,9 +12199,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     const gameBadge = document.getElementById('mh-game-badge');
     if (gameBadge) {
       gameBadge.textContent = s.isGameRunning
-        ? `🎮 ${s.targetLabel} (${s.activeRunHMS})`
-        : 'IDLE 대기 중';
-      gameBadge.style.color = s.isGameRunning ? 'var(--neon-green)' : 'var(--text-muted)';
+        ? `${s.targetLabel} (${s.activeRunHMS})`
+        : 'IDLE';
+      gameBadge.style.color = s.isGameRunning ? 'var(--green)' : 'var(--text-muted)';
     }
 
     // 1. FPS
@@ -12159,34 +12249,34 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     if (mhNetLabel) {
       if (net.is_game_ping) {
         const isIngame = pingMs < 115.0;
-        mhNetLabel.textContent = isIngame ? '🎮 IN-GAME' : '🎮 LOBBY';
-        mhNetLabel.style.color = isIngame ? 'var(--neon-green)' : 'var(--cyan)';
+        mhNetLabel.textContent = isIngame ? 'IN-GAME' : 'LOBBY';
+        mhNetLabel.style.color = isIngame ? 'var(--green)' : 'var(--cyan)';
       } else {
-        mhNetLabel.textContent = '🌐 NET/PING';
+        mhNetLabel.textContent = 'NET / PING';
         mhNetLabel.style.color = '';
       }
     }
     document.getElementById('mh-net-val').textContent = net.online === false ? '오프라인' : `${pingMs.toFixed(1)} ms`;
     document.getElementById('mh-net-down').textContent = `↓ ${rxMbs.toFixed(2)} MB/s`;
     document.getElementById('mh-net-up').textContent = `↑ ${txMbs.toFixed(2)} MB/s`;
-    document.getElementById('mh-disk-io').textContent = `💽 ${diskTot.toFixed(1)}M/s`;
+    document.getElementById('mh-disk-io').textContent = `IO ${diskTot.toFixed(1)}M/s`;
 
     // 6. 플레이 시간 & 뽀모도로
     const pm = String(Math.floor(pomoRemaining / 60)).padStart(2, '0');
     const ps = String(pomoRemaining % 60).padStart(2, '0');
     const pomoPct = pomoTotal > 0 ? ((pomoTotal - pomoRemaining) / pomoTotal) * 100 : 0;
     if (s.isGameRunning && !pomoRunning) {
-      document.getElementById('mh-timer-label').textContent = '⏱️ 플레이타임';
-      document.getElementById('mh-timer-state').textContent = 'LIVE 🔴';
+      document.getElementById('mh-timer-label').textContent = '플레이타임';
+      document.getElementById('mh-timer-state').textContent = 'LIVE';
       document.getElementById('mh-timer-val').textContent = s.activeRunHMS;
       document.getElementById('mh-timer-bar').style.width = '100%';
-      document.getElementById('mh-timer-sub').textContent = `🍅 뽀모도로 ${pm}:${ps} (클릭시작)`;
+      document.getElementById('mh-timer-sub').textContent = `타이머 ${pm}:${ps} (클릭)`;
     } else {
-      document.getElementById('mh-timer-label').textContent = pomoIsBreak ? '☕ 휴식타이머' : '🍅 집중타이머';
-      document.getElementById('mh-timer-state').textContent = pomoRunning ? '진행 중 🔥' : '일시정지';
+      document.getElementById('mh-timer-label').textContent = pomoIsBreak ? '휴식 타이머' : '집중 타이머';
+      document.getElementById('mh-timer-state').textContent = pomoRunning ? '진행 중' : '대기';
       document.getElementById('mh-timer-val').textContent = `${pm}:${ps}`;
       document.getElementById('mh-timer-bar').style.width = `${pomoPct.toFixed(1)}%`;
-      document.getElementById('mh-timer-sub').textContent = s.isGameRunning ? `🎮 ${s.activeRunHMS}` : '클릭하여 시작/정지';
+      document.getElementById('mh-timer-sub').textContent = s.isGameRunning ? s.activeRunHMS : '클릭하여 시작/정지';
     }
   }
 
@@ -12402,7 +12492,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('gpu-power-pill').textContent = `${(g.power_w || 0).toFixed(1)} W`;
       document.getElementById('gpu-clock-pill').textContent = `${g.clock_mhz || 0} MHz`;
       document.getElementById('gpu-vram-pct-pill').textContent = `VRAM ${vramPct.toFixed(0)}%`;
-      document.getElementById('mini-status').textContent = `CPU ${d.cpu.toFixed(0)}%${cpuTempC ? ` (${cpuTempC.toFixed(0)}°C)` : ''} · GPU ${gpuUsage.toFixed(0)}%${tempC > 0 ? ` (${tempC.toFixed(0)}°C)` : ''}`;
+      const miniStatusEl = document.getElementById('mini-status');
+      if (miniStatusEl) miniStatusEl.textContent = '로컬 계측 활성';
 
       gpuHistory.push(gpuUsage);
       if (gpuHistory.length > 60) gpuHistory.shift();
@@ -12464,7 +12555,11 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         playtimePill.textContent = activeRunHMS;
         playtimePill.style.color = isGameRunning ? 'var(--green)' : 'var(--text-muted)';
       }
-      document.getElementById('fps-target-name').textContent = targetLabel;
+      const fpsTargetEl = document.getElementById('fps-target-name');
+      if (fpsTargetEl) {
+        fpsTargetEl.textContent = isGameRunning ? targetLabel : '게임 없음';
+        fpsTargetEl.style.color = isGameRunning ? 'var(--text-normal)' : 'var(--text-muted)';
+      }
 
       const badgeEl = document.getElementById('fps-mode-badge');
       badgeEl.textContent = isGameRunning ? `LIVE · ${activeRunHMS}` : 'IDLE';
@@ -12553,9 +12648,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         }
         document.getElementById('strip-disk-io').textContent = `디스크 R ${diskReadMbs.toFixed(2)} / W ${diskWriteMbs.toFixed(2)} MB/s`;
         if (disks.length > 0) {
-          document.getElementById('strip-disk-summary').textContent = disks
-            .map(dk => `${dk.mount} ${Number(dk.used_pct).toFixed(0)}% (${Number(dk.avail_gb).toFixed(0)}GB 여유)`)
-            .join(' • ');
+          document.getElementById('strip-disk-summary').innerHTML = `<span class="strip-drive-list">${disks.map(dk => {
+            const pct = Number(dk.used_pct || 0);
+            const pctColor = pct >= 90 ? 'var(--red)' : (pct >= 75 ? 'var(--yellow)' : 'var(--green)');
+            const availGb = Number(dk.avail_gb || 0).toFixed(0);
+            return `<span class="strip-drive-chip"><span class="strip-drive-letter">${escapeHtml(dk.mount)}</span><span class="strip-drive-pct" style="color:${pctColor}">${pct.toFixed(0)}%</span><span class="strip-drive-free">${availGb}GB 여유</span></span>`;
+          }).join('')}</span>`;
         }
       }
 
