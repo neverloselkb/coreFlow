@@ -1626,6 +1626,12 @@ fn get_foreground_window_info() -> Option<(u32, String)> {
         if pid == 0 {
             return None;
         }
+        // 투명 클릭 투과(WS_EX_TRANSPARENT), 비활성 오버레이(WS_EX_NOACTIVATE), 보조 툴 창(WS_EX_TOOLWINDOW)은
+        // 게임 창이 아닌 시스템/그래픽카드 오버레이(예: NVIDIA GeForce Overlay DT)이므로 즉시 제외
+        let ex_style = GetWindowLongW(hwnd, -20) as u32;
+        if (ex_style & (0x0000_0020 | 0x0800_0000 | 0x0000_0080)) != 0 {
+            return None;
+        }
         // 대상 창이 멈춤(응답없음) 상태면 텍스트 조회를 건너뛰고 PID만 즉시 반환
         if IsHungAppWindow(hwnd) != 0 {
             return Some((pid, String::new()));
@@ -2918,6 +2924,37 @@ fn is_blacklisted_system_process(exe_lower: &str) -> bool {
         || exe_lower.contains("phoneexperience")
         || exe_lower.contains("crossdevice")
         || exe_lower.contains("capturehost")
+        // 그래픽 드라이버·인게임 오버레이·성능 측정/배경화면 유틸리티 제외 (NVIDIA GeForce Overlay DT 등 오탐 원천 차단)
+        || exe_lower.contains("overlay")
+        || exe_lower.contains("nvidia share")
+        || exe_lower.contains("nvidia app")
+        || exe_lower.contains("nvidia web helper")
+        || exe_lower.contains("nvidia broadcast")
+        || exe_lower.contains("geforce")
+        || exe_lower.contains("nvsphelper")
+        || exe_lower.contains("nvcontainer")
+        || exe_lower.contains("nvdisplay")
+        || exe_lower.contains("nvcpl")
+        || exe_lower.contains("radeonsoftware")
+        || exe_lower.contains("amddvr")
+        || exe_lower.contains("amdow")
+        || exe_lower.contains("amdrsserv")
+        || exe_lower.contains("arccontrol")
+        || exe_lower.contains("intelgraphics")
+        || exe_lower.contains("overwolf")
+        || exe_lower.contains("steelseries")
+        || exe_lower.contains("presentmon")
+        || exe_lower.contains("capframex")
+        || exe_lower.contains("losslessscaling")
+        || exe_lower.contains("wallpaper32")
+        || exe_lower.contains("wallpaper64")
+        || exe_lower.contains("webwallpaper")
+        || exe_lower.contains("livelywpf")
+        || exe_lower.contains("rainmeter")
+        || exe_lower.contains("lghub")
+        || exe_lower.contains("razersynapse")
+        || exe_lower.contains("razerappengine")
+        || exe_lower.contains("armourycrate")
         // 동영상·미디어 플레이어 제외 (DXGI 하드웨어 가속으로 게임 오탐 방지)
         || exe_lower.contains("potplayer")
         || exe_lower.contains("kmplayer")
@@ -2963,8 +3000,11 @@ fn is_blacklisted_system_process(exe_lower: &str) -> bool {
         "gog galaxy.exe", "galaxyclient.exe", "galaxyclientservice.exe", "galaxycommunication.exe",
         "crashreportclient.exe", "unitycrashhandler64.exe", "unitycrashhandler32.exe",
         "easyanticheat.exe", "easyanticheat_eos.exe", "easyanticheat_setup.exe",
-        "battleye.exe", "beservice.exe", "nvidia share.exe",
-        "nvcontainer.exe", "geforceexperience.exe", "rtss.exe", "msiafterburner.exe",
+        "battleye.exe", "beservice.exe", "nvidia share.exe", "nvidia overlay.exe",
+        "nvidia app.exe", "nvidia web helper.exe", "nvsphelper64.exe", "nvsphelper.exe",
+        "nvdisplay.container.exe", "nvcplui.exe", "nvcontainer.exe", "geforceexperience.exe",
+        "rtss.exe", "rtsshooksloader64.exe", "msiafterburner.exe", "medal.exe", "medalencoder.exe",
+        "icue.exe", "nzxt cam.exe", "lively.exe",
         "audiodg.exe", "spoolsv.exe", "fontdrvhost.exe", "sihost.exe", "ctfmon.exe",
         "ngm.exe", "nexonplug.exe", "stove.exe", "stoveupdater.exe", "smilegatelauncher.exe",
         // 캡처 도구, 화면 캡처, 녹화 오버레이 및 시스템 보조 유틸리티 프로세스
@@ -3007,6 +3047,25 @@ fn is_non_game_window_title(title: &str) -> bool {
         || t.contains("riot client")
         || t.contains("steam")
         || t.contains("xbox game bar")
+        || t.contains("geforce overlay")
+        || t.contains("nvidia overlay")
+        || t.contains("nvidia geforce")
+        || t.contains("nvidia app")
+        || t.contains("nvidia broadcast")
+        || t.contains("nvidia control panel")
+        || t.contains("nvidia 제어판")
+        || t.contains("overlay dt")
+        || t.ends_with(" overlay")
+        || t.contains("radeon overlay")
+        || t.contains("amd software")
+        || t.contains("arc control")
+        || t.contains("discord overlay")
+        || t.contains("steam overlay")
+        || t.contains("overwolf")
+        || t.contains("wallpaper engine")
+        || t == "program manager"
+        || t == "default ime"
+        || t == "msctfime ui"
         || t.contains("작업 관리자")
         || t.contains("task manager")
         || t.contains("설정")
@@ -3090,6 +3149,13 @@ fn is_ignored_game_path(path_str: &str) -> bool {
         || lower.contains(r"epic games\directxredist")
         || lower.contains("steamworks shared")
         || lower.contains("steam controller configs")
+        || lower.contains("wallpaper_engine")
+        || lower.contains(r"\nvidia corporation\")
+        || lower.contains(r"\nvidia app\")
+        || lower.contains(r"\amd\cnext\")
+        || lower.contains(r"\windows\system32\")
+        || lower.contains(r"\windows\systemapps\")
+        || lower.contains(r"\overwolf\")
         || lower.contains(r"\easyanticheat")
         || lower.contains(r"\battleye")
         || lower.contains(r"\riot client")
@@ -3287,7 +3353,8 @@ fn game_log_file_path() -> std::path::PathBuf {
 fn load_game_sessions() -> Vec<GameSessionRecord> {
     let path = game_log_file_path();
     let mut list = Vec::new();
-    if let Ok(content) = std::fs::read_to_string(path) {
+    let mut filtered_any = false;
+    if let Ok(content) = std::fs::read_to_string(&path) {
         let trimmed = content.trim_start_matches('\u{feff}');
         for (idx, line) in trimmed.lines().enumerate() {
             if idx == 0 && line.starts_with("id\t") {
@@ -3344,10 +3411,15 @@ fn load_game_sessions() -> Vec<GameSessionRecord> {
                             max_gpu_usage,
                             fps_samples,
                         });
+                    } else {
+                        filtered_any = true;
                     }
                 }
             }
         }
+    }
+    if filtered_any {
+        save_game_sessions(&list);
     }
     list
 }
@@ -3753,7 +3825,13 @@ impl StatsCollector {
                 } else if let Some(p) = procs.iter().find(|p| p.pid().as_u32() == self.active_game_pid) {
                     let pname_raw = p.name().to_string_lossy();
                     let exe_lower = pname_raw.to_lowercase();
-                    if !is_blacklisted_system_process(&exe_lower) && !is_non_game_window_title(&self.active_game_name) {
+                    let is_ignored_path = p
+                        .exe()
+                        .map_or(false, |ep| is_ignored_game_path(&ep.to_string_lossy()));
+                    if !is_blacklisted_system_process(&exe_lower)
+                        && !is_ignored_path
+                        && !is_non_game_window_title(&self.active_game_name)
+                    {
                         detected_game_name = self.active_game_name.clone();
                         detected_game_exe = self.active_game_exe.clone();
                         detected_game_pid = p.pid().as_u32();
@@ -3780,10 +3858,14 @@ impl StatsCollector {
                         let pname_raw = p.name().to_string_lossy();
                         let exe_lower = pname_raw.to_lowercase();
                         let is_fg_non_game = is_non_game_window_title(&fg_title);
+                        let is_ignored_path = p
+                            .exe()
+                            .map_or(false, |ep| is_ignored_game_path(&ep.to_string_lossy()));
                         let is_rendering_3d = pid_fps_map
                             .get(&fg_pid)
                             .map_or(false, |f| f.fps >= 12.0 && f.frame_count_1s >= 12);
                         if !is_blacklisted_system_process(&exe_lower)
+                            && !is_ignored_path
                             && !is_fg_non_game
                             && is_rendering_3d
                             && p.memory() > 200 * 1024 * 1024
