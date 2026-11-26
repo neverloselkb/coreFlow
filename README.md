@@ -6,7 +6,7 @@
 
 [![Language](https://img.shields.io/badge/Language-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20(Universal)-0078D6?logo=apple)](https://github.com/neverloselkb/coreFlow/releases)
-[![Version](https://img.shields.io/badge/Release-v1.0.11-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.14-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
 [![License](https://img.shields.io/badge/License-MIT-green)](#)
 
 </div>
@@ -83,6 +83,9 @@
 
 ## 📋 최근 주요 업데이트 내역 (Changelog)
 
+- **`v1.0.14`**: 보안 전면 강화 — 설치/제거 관리자(`CoreFlow_Setup`) 로컬 서버 256비트 CSPRNG 토큰·`HttpOnly` 세션 쿠키·경로 안전 검증 적용, 메인 앱 256비트 CSPRNG 토큰·상수 시간 검증·Stored XSS(`</script>` 탈출) 차단·CSP 및 `/api/avatar`·`/api/proc_icon` 교차 출처 보호, Windows·macOS 공통 Fail-Closed SHA-256 자가 업데이트 검증 및 macOS 쉘 인젝션/Zip-Slip 차단
+- **`v1.0.13`**: 무광 흑연(Graphite) 정밀 계측기 UI 전면 리디자인, 미니 HUD `NET/PING` 칸 확장, 드라이브 점유율 색상 칩 구분, 동영상 플레이어(PotPlayer·VLC·MPC 등) 게임 오탐 차단
+- **`v1.0.12`**: 장기 실행 멈춤 방지 아키텍처 개선 — 전용 백그라운드 수집 스레드 분리(`SharedMeta` + `StatsCollector`), 초경량 프로세스 스캔 전환 및 `rayon` 스레드 풀 제거, CPU WMI 온도 백오프 적용
 - **`v1.0.11`**: 상단 도구·테마 토글 드롭다운 메뉴화 및 전 메뉴 창 크기 반응형 자동 조절 적용, OneDrive/한글/사용자 지정 바탕화면 바로가기(`SHGetKnownFolderPath`) 및 아이콘 캐시 즉시 갱신, 멀티 모니터 분리 시 화면 이탈 자동 복구, Chrome·네이버 웨일·Brave 브라우저 지원 확대 및 완전 제거 시 `%LOCALAPPDATA%\CoreFlow` 정리
 - **`v1.0.10`**: 미니 HUD 8방향 화면 위치 프리셋(3×3 그리드 + 마지막 위치 기억, 멀티 모니터·작업 표시줄 자동 대응) 추가, 게임별 수동 설정 없이 동작하는 범용 다중 IP 계층 핑 측정 알고리즘 및 IRC/XMPP/STUN 채팅·보조 포트 자동 분리 적용
 - **`v1.0.9`**: 언인스톨러(`Uninstall_CoreFlow.exe`) 버전 및 Windows '설치된 앱' 레지스트리(`DisplayVersion`) 자동 동기화, 프로그램 완전 제거 시 `%TEMP%` 호스트 이관 및 하위 `nvidia-smi` 프로세스 정리를 통한 설치 폴더(`C:\Program Files\CoreFlow`) 100% 완전 삭제 및 창 자동 종료 지원

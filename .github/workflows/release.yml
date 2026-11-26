@@ -147,15 +147,24 @@ jobs:
             release-assets/CoreFlow-macOS-universal.zip
             release-assets/SHA256SUMS.txt
           tag_name: ${{ github.ref_name }}
-          name: CoreFlow ${{ github.ref_name }} — Graphite 정밀 계측 UI 리디자인, 미니 HUD·디스크 가독성 개선 및 동영상 플레이어 오탐 차단
+          name: CoreFlow ${{ github.ref_name }} — 로컬 서버·설치기 보안 전면 강화(CSPRNG·CSRF/XSS 방어·Fail-Closed 무결성 검증)
           body: |
             ## 🚀 CoreFlow ${{ github.ref_name }} 릴리스 노트
 
-            CoreFlow ${{ github.ref_name }}는 **무광 흑연(Graphite) 계측기 UI 전면 리디자인**, **미니 HUD 및 게임 플레이 기록 가독성·레이아웃 개선**, 그리고 **동영상 플레이어 게임 오탐 차단**을 포함한 업데이트입니다.
+            CoreFlow ${{ github.ref_name }}는 **설치 관리자 및 메인 애플리케이션 로컬 서버 인증 강화**, **256비트 CSPRNG 세션 토큰 도입**, **Stored/DOM XSS 및 교차 출처 정보 유출 원천 차단**, 그리고 **Windows·macOS 공통 Fail-Closed SHA-256 자가 업데이트 무결성 검증**을 적용한 보안 강화 업데이트입니다.
 
             ---
 
-            ### 🎨 v1.0.13 UI 전면 정돈 (Graphite 계측기 디자인)
+            ### 🛡️ v1.0.14 보안 전면 강화 (Security Hardening)
+            - **설치/제거 관리자(`CoreFlow_Setup`) 권한 경계 및 인증 보호**: UAC 관리자 권한으로 실행되는 설치/제거 로컬 서버의 초기 진입 및 모든 `/api/*` 엔드포인트에 256비트 CSPRNG 세션 토큰(`BCryptGenRandom`), `HttpOnly; SameSite=Strict` 세션 쿠키, `Host`/`Origin`/`Sec-Fetch-Site` 검증, 소켓 타임아웃 및 워커 스레드 상한을 적용해 외부 웹페이지 CSRF 및 비권한 프로세스 권한 상승을 차단했습니다.
+            - **설치·제거 대상 경로 안전 검증**: 상대경로, 상위 경로 이동(`..`), UNC 네트워크 공유(`\\...`), 심볼릭 링크/정션, 드라이브 루트(`C:\`), 시스템·사용자 루트 폴더 지정을 원천 차단하고, 공용 폴더에 설치된 경우 타 파일 손실 없이 CoreFlow 전용 파일만 안전하게 제거하도록 강화했습니다.
+            - **Windows·macOS 공통 Fail-Closed SHA-256 업데이트 검증**: 업데이트 에셋 URL을 공식 `neverloselkb/coreFlow/releases/download/` 경로로 엄격 제한(`--proto =https --tlsv1.2`)하고, GitHub Releases API 공식 `digest` 또는 배포본 `SHA256SUMS.txt` 해시 대조가 통과한 경우에만 설치를 허용합니다.
+            - **macOS 자가 업데이트 쉘 인젝션 및 Zip-Slip 차단**: 압축 해제 전 Zip-Slip 경로 검사를 추가하고, `sh -c` 문자열 포맷팅 대신 위치 인자(`$1`, `$2`) 전달 방식을 적용해 특수문자 경로로 인한 명령어 주입 위험을 제거했습니다.
+            - **256비트 암호학적 난수 토큰 & Stored XSS / 교차 출처 유출 차단**: 메인 앱 세션 토큰을 OS 커널 CSPRNG(`BCryptGenRandom` / `/dev/urandom`) 및 상수 시간 비교로 교체하고, 인라인 스크립트 JSON 유니코드 이스케이프(`</script>` 탈출 방지), `Content-Security-Policy`, `/api/avatar`·`/api/proc_icon` 토큰·`Cross-Origin-Resource-Policy: same-origin` 보호, CSV 수식 주입 방어를 적용했습니다.
+
+            ---
+
+            ### 🎨 v1.0.13 UI 전면 정돈 (Graphite 계측기 디자인 — 이전 버전 포함 내용)
             - **중립 Graphite 다크/라이트 램프 & 4px 그리드 통일**: 과한 원색 남발·그라데이션 진행 바·컬러 글로우·카드 호버 점프를 제거하고, 순수 무채색 표면 단계와 8% 헤어라인 위에 시계열 차트와 핵심 수치(`tabular-nums`)가 선명하게 읽히도록 정돈했습니다.
             - **단일 라인 SVG 아이콘 & 간결한 카피**: UI 전반의 이모지, Discord식 하이픈 메뉴명, 불필요한 느낌표를 제거하고 `16px / stroke 1.5` 라인 아이콘과 `<kbd>` 단축키 키캡으로 통일했습니다.
 
