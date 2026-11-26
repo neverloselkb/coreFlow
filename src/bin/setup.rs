@@ -12,10 +12,10 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
@@ -223,6 +223,16 @@ extern "system" {
         fu_load: u32,
     ) -> isize;
     fn SendMessageW(h_wnd: isize, msg: u32, w_param: usize, l_param: isize) -> isize;
+}
+
+#[link(name = "Bcrypt")]
+extern "system" {
+    fn BCryptGenRandom(
+        h_algorithm: *mut std::ffi::c_void,
+        pb_buffer: *mut u8,
+        cb_buffer: u32,
+        dw_flags: u32,
+    ) -> i32;
 }
 
 const HKEY_CURRENT_USER: isize = -2147483647i32 as isize;
@@ -756,6 +766,153 @@ fn parse_query_str(request_line: &str, key: &str) -> Option<String> {
     None
 }
 
+fn generate_setup_token() -> String {
+    let mut bytes = [0u8; 32];
+    let status = unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+            bytes.len() as u32,
+            0x0000_0002, // BCRYPT_USE_SYSTEM_PREFERRED_RNG
+        )
+    };
+    if status == 0 {
+        let mut out = String::with_capacity(64);
+        for b in bytes {
+            out.push_str(&format!("{b:02x}"));
+        }
+        return out;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    let addr = (&bytes as *const u8 as usize) as u128;
+    format!(
+        "{:032x}{:032x}",
+        nanos ^ pid.rotate_left(37) ^ addr.rotate_left(19),
+        nanos.wrapping_mul(0x9E37_79B9_7F4A_7C15_u128) ^ addr.rotate_left(53)
+    )
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let ab = a.as_bytes();
+    let bb = b.as_bytes();
+    if ab.len() != bb.len() || ab.is_empty() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in ab.iter().zip(bb.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// 설치/제거 대상 경로 검증:
+/// 상대경로·UNC 네트워크 경로(`\\server\share`)·상위 디렉토리 탈출(`..`)·드라이브 루트(`C:\`)·Windows 시스템/사용자 루트 폴더를 원천 차단
+fn validate_safe_install_dir(raw: &str) -> Result<PathBuf, &'static str> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() || trimmed.len() > 240 {
+        return Err("설치 경로가 비어 있거나 허용 길이를 초과했습니다.");
+    }
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '<' | '>' | '|' | '*' | '?' | '"'))
+    {
+        return Err("설치 경로에 허용되지 않는 특수문자가 포함되어 있습니다.");
+    }
+    if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+        return Err("보안상 네트워크 공유(UNC) 경로는 설치/제거 대상으로 사용할 수 없습니다.");
+    }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 4 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || (bytes[2] != b'\\' && bytes[2] != b'/') {
+        return Err("올바른 로컬 드라이브 절대 경로(예: C:\\Program Files\\CoreFlow)를 지정해 주세요.");
+    }
+
+    let candidate = PathBuf::from(trimmed.replace('/', "\\"));
+    let mut normal_parts: Vec<String> = Vec::new();
+    for comp in candidate.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir => {}
+            Component::CurDir => {}
+            Component::ParentDir => {
+                return Err("설치 경로에 상위 경로 이동(..)을 포함할 수 없습니다.");
+            }
+            Component::Normal(os) => {
+                let s = os.to_string_lossy().trim().trim_end_matches('.').to_string();
+                if s.is_empty() {
+                    return Err("유효하지 않은 폴더 이름이 포함되어 있습니다.");
+                }
+                normal_parts.push(s);
+            }
+        }
+    }
+
+    if normal_parts.is_empty() {
+        return Err("드라이브 최상위 루트(예: C:\\)는 설치/제거 경로로 지정할 수 없습니다.");
+    }
+
+    let drive_letter = (bytes[0] as char).to_ascii_uppercase();
+    let mut normalized = PathBuf::from(format!("{drive_letter}:\\"));
+    for p in &normal_parts {
+        normalized.push(p);
+    }
+
+    let norm_lower = normalized
+        .to_string_lossy()
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+
+    // 시스템 핵심 폴더 및 공유 상위 폴더 직접 지정 차단
+    let first_lower = normal_parts[0].to_ascii_lowercase();
+    if first_lower == "windows"
+        || first_lower == "$recycle.bin"
+        || first_lower == "system volume information"
+        || first_lower == "recovery"
+        || first_lower == "perflogs"
+    {
+        return Err("Windows 시스템 보호 디렉토리 내부는 지정할 수 없습니다.");
+    }
+
+    let forbidden_exact = [
+        format!("{}:\\program files", drive_letter.to_ascii_lowercase()),
+        format!("{}:\\program files (x86)", drive_letter.to_ascii_lowercase()),
+        format!("{}:\\programdata", drive_letter.to_ascii_lowercase()),
+        format!("{}:\\users", drive_letter.to_ascii_lowercase()),
+    ];
+    if forbidden_exact.iter().any(|f| f == &norm_lower) {
+        return Err("공용 상위 시스템 폴더 자체는 지정할 수 없습니다. 하위 폴더(예: C:\\Program Files\\CoreFlow)를 선택해 주세요.");
+    }
+
+    // C:\Users\<계정> 또는 바탕화면/문서/다운로드 루트 자체를 지정하는 실수·공격 차단
+    if first_lower == "users" {
+        if normal_parts.len() <= 2 {
+            return Err("사용자 프로필 루트 폴더 자체는 설치/제거 경로로 지정할 수 없습니다.");
+        }
+        if normal_parts.len() == 3 {
+            let sub = normal_parts[2].to_ascii_lowercase();
+            if matches!(
+                sub.as_str(),
+                "desktop" | "documents" | "downloads" | "appdata" | "pictures" | "videos" | "music" | "onedrive"
+            ) {
+                return Err("사용자 기본 라이브러리 폴더 자체는 지정할 수 없습니다. 하위 CoreFlow 폴더를 지정해 주세요.");
+            }
+        }
+    }
+
+    for env_key in ["WINDIR", "SYSTEMROOT", "USERPROFILE", "APPDATA", "LOCALAPPDATA"] {
+        if let Ok(v) = env::var(env_key) {
+            let vl = v.trim().trim_end_matches('\\').to_ascii_lowercase();
+            if !vl.is_empty() && norm_lower == vl {
+                return Err("보호된 시스템/사용자 루트 경로는 설치/제거 폴더로 사용할 수 없습니다.");
+            }
+        }
+    }
+
+    Ok(normalized)
+}
+
 fn perform_install(
     install_dir_str: &str,
     opt_desktop: bool,
@@ -764,12 +921,18 @@ fn perform_install(
     opt_startup: Option<bool>,
     opt_migrate: bool,
     opt_launch: bool,
-) -> String {
+) -> (bool, Option<PathBuf>, String) {
     let mut steps = Vec::new();
-    let install_dir = PathBuf::from(install_dir_str.trim());
-    if install_dir.as_os_str().is_empty() {
-        return r#"{"ok":false,"error":"설치 경로가 비어 있습니다."}"#.to_string();
-    }
+    let install_dir = match validate_safe_install_dir(install_dir_str) {
+        Ok(p) => p,
+        Err(msg) => {
+            return (
+                false,
+                None,
+                format!(r#"{{"ok":false,"error":"{}"}}"#, escape_json(msg)),
+            );
+        }
+    };
 
     // 1. 실행 중인 CoreFlow 종료
     let killed = stop_running_coreflow();
@@ -781,9 +944,24 @@ fn perform_install(
 
     // 2. 설치 디렉토리 및 하위 폴더 생성
     if let Err(e) = fs::create_dir_all(&install_dir) {
-        return format!(
-            r#"{{"ok":false,"error":"설치 폴더 생성 실패: {}"}}"#,
-            escape_json(&e.to_string())
+        return (
+            false,
+            None,
+            format!(
+                r#"{{"ok":false,"error":"설치 폴더 생성 실패: {}"}}"#,
+                escape_json(&e.to_string())
+            ),
+        );
+    }
+    // 심볼릭 링크 / 정션(Reparse Point) 악용을 통한 임의 경로 덮어쓰기 차단
+    if fs::symlink_metadata(&install_dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return (
+            false,
+            None,
+            r#"{"ok":false,"error":"보안상 심볼릭 링크/정션 폴더에는 설치할 수 없습니다."}"#.to_string(),
         );
     }
     let assets_dir = install_dir.join("assets");
@@ -821,9 +999,13 @@ fn perform_install(
         }
     }
     if let Some(e) = write_err {
-        return format!(
-            r#"{{"ok":false,"error":"CoreFlow.exe 파일 쓰기 실패: {}"}}"#,
-            escape_json(&e.to_string())
+        return (
+            false,
+            None,
+            format!(
+                r#"{{"ok":false,"error":"CoreFlow.exe 파일 쓰기 실패: {}"}}"#,
+                escape_json(&e.to_string())
+            ),
         );
     }
     let _ = fs::write(&ico_path, EMBEDDED_ICON_ICO);
@@ -931,17 +1113,48 @@ fn perform_install(
         .iter()
         .map(|s| format!("\"{}\"", escape_json(s)))
         .collect();
-    format!(
+    let json = format!(
         r#"{{"ok":true,"install_dir":"{}","exe_path":"{}","steps":[{}]}}"#,
         escape_json(&install_dir.to_string_lossy()),
         escape_json(&exe_path.to_string_lossy()),
         steps_json.join(",")
-    )
+    );
+    (true, Some(install_dir), json)
 }
 
-fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
+fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> (bool, String) {
     let mut steps = Vec::new();
-    let install_dir = PathBuf::from(install_dir_str.trim());
+    let install_dir = match validate_safe_install_dir(install_dir_str) {
+        Ok(p) => p,
+        Err(msg) => {
+            return (
+                false,
+                format!(r#"{{"ok":false,"error":"{}"}}"#, escape_json(msg)),
+            );
+        }
+    };
+    if fs::symlink_metadata(&install_dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return (
+            false,
+            r#"{"ok":false,"error":"보안상 심볼릭 링크/정션 경로는 제거할 수 없습니다."}"#.to_string(),
+        );
+    }
+    let is_dedicated_coreflow_dir = install_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().eq_ignore_ascii_case("coreflow"))
+        .unwrap_or(false);
+    let had_coreflow_files = install_dir.join("CoreFlow.exe").exists()
+        || install_dir.join("Uninstall_CoreFlow.exe").exists()
+        || install_dir.join("coreflow.ico").exists();
+    if !is_dedicated_coreflow_dir && !had_coreflow_files {
+        return (
+            false,
+            r#"{"ok":false,"error":"지정한 폴더에서 CoreFlow 설치 파일을 찾을 수 없어 안전을 위해 삭제를 중단했습니다."}"#.to_string(),
+        );
+    }
 
     // 작업 디렉토리가 설치 폴더에 걸려 있지 않도록 %TEMP%로 전환
     let _ = env::set_current_dir(env::temp_dir());
@@ -1040,36 +1253,44 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         ] {
             let _ = fs::remove_file(install_dir.join(f));
         }
-        // 폴더 내 잔여 파일이 있다면 모두 정리 후 설치 폴더(C:\Program Files\CoreFlow) 자체까지 완전히 삭제
-        if let Ok(entries) = fs::read_dir(&install_dir) {
-            for entry in entries.flatten() {
-                let ep = entry.path();
-                if ep.is_dir() {
-                    let _ = fs::remove_dir_all(&ep);
-                } else if fs::remove_file(&ep).is_err() {
-                    let ev = env::temp_dir().join(format!(
-                        "CoreFlow_Evac_{}_{}.tmp",
-                        entry.file_name().to_string_lossy(),
-                        std::process::id()
-                    ));
-                    let _ = fs::remove_file(&ev);
-                    let _ = fs::rename(&ep, &ev);
+        // 전용 CoreFlow 폴더인 경우에만 폴더 전체를 정리하고, 공용 폴더에 설치된 경우에는 CoreFlow 고유 파일만 삭제하여 타 프로그램 데이터 손실 방지
+        if is_dedicated_coreflow_dir {
+            if let Ok(entries) = fs::read_dir(&install_dir) {
+                for entry in entries.flatten() {
+                    let ep = entry.path();
+                    if ep.is_dir() {
+                        let _ = fs::remove_dir_all(&ep);
+                    } else if fs::remove_file(&ep).is_err() {
+                        let ev = env::temp_dir().join(format!(
+                            "CoreFlow_Evac_{}_{}.tmp",
+                            entry.file_name().to_string_lossy(),
+                            std::process::id()
+                        ));
+                        let _ = fs::remove_file(&ev);
+                        let _ = fs::rename(&ep, &ev);
+                    }
                 }
             }
-        }
-        for _ in 0..8 {
-            if !install_dir.exists()
-                || fs::remove_dir(&install_dir).is_ok()
-                || fs::remove_dir_all(&install_dir).is_ok()
-            {
-                break;
+            for _ in 0..8 {
+                if !install_dir.exists()
+                    || fs::remove_dir(&install_dir).is_ok()
+                    || fs::remove_dir_all(&install_dir).is_ok()
+                {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(150));
             }
-            thread::sleep(Duration::from_millis(150));
+            steps.push(format!(
+                "사용자 데이터 및 설치 폴더({}) 전체 삭제 완료",
+                install_dir.display()
+            ));
+        } else {
+            let _ = fs::remove_dir(&install_dir); // 비어 있는 경우에만 제거
+            steps.push(format!(
+                "CoreFlow 데이터 삭제 완료 (공용 상위 폴더 {} 내 타 파일은 안전하게 보존됨)",
+                install_dir.display()
+            ));
         }
-        steps.push(format!(
-            "사용자 데이터 및 설치 폴더({}) 전체 삭제 완료",
-            install_dir.display()
-        ));
     } else {
         steps.push("사용자 설정 및 게임 플레이 로그(logs/)는 안전하게 보존됨".to_string());
     }
@@ -1078,7 +1299,7 @@ fn perform_uninstall(install_dir_str: &str, keep_user_data: bool) -> String {
         .iter()
         .map(|s| format!("\"{}\"", escape_json(s)))
         .collect();
-    format!(r#"{{"ok":true,"steps":[{}]}}"#, steps_json.join(","))
+    (true, format!(r#"{{"ok":true,"steps":[{}]}}"#, steps_json.join(",")))
 }
 
 fn find_browser_executable() -> Option<String> {
@@ -1208,13 +1429,94 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
+static ACTIVE_SETUP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+const MAX_SETUP_HTTP_WORKERS: usize = 32;
+
+fn verify_setup_headers_only(req_headers: &str) -> bool {
+    let mut saw_host = false;
+    for line in req_headers.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        let lower = line.to_ascii_lowercase();
+        if let Some(host) = lower.strip_prefix("host:") {
+            let h = host.trim();
+            if !h.starts_with("127.0.0.1:") && h != "127.0.0.1" && !h.starts_with("localhost:") {
+                return false;
+            }
+            saw_host = true;
+        } else if let Some(origin) = lower.strip_prefix("origin:") {
+            let o = origin.trim();
+            if o != "null"
+                && !o.starts_with("http://127.0.0.1:")
+                && !o.starts_with("http://localhost:")
+            {
+                return false;
+            }
+        } else if let Some(sfs) = lower.strip_prefix("sec-fetch-site:") {
+            if sfs.trim() == "cross-site" {
+                return false;
+            }
+        }
+    }
+    saw_host
+}
+
+fn extract_setup_cookie(req_headers: &str, cookie_name: &str) -> Option<String> {
+    let prefix = format!("{cookie_name}=");
+    for line in req_headers.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        if line.len() >= 7 && line[..7].eq_ignore_ascii_case("cookie:") {
+            for part in line[7..].split(';') {
+                if let Some(val) = part.trim().strip_prefix(&prefix) {
+                    return Some(val.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn verify_setup_api_request(req_headers: &str, first_line: &str, expected_token: &str) -> bool {
+    if !verify_setup_headers_only(req_headers) {
+        return false;
+    }
+    for line in req_headers.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        if line.len() >= 23 && line[..23].eq_ignore_ascii_case("x-coreflow-setup-token:") {
+            if constant_time_eq(line[23..].trim(), expected_token) {
+                return true;
+            }
+        }
+    }
+    if let Some(q_tok) = parse_query_str(first_line, "token") {
+        if constant_time_eq(q_tok.trim(), expected_token) {
+            return true;
+        }
+    }
+    if let Some(c_tok) = extract_setup_cookie(req_headers, "cf_setup_session") {
+        if constant_time_eq(&c_tok, expected_token) {
+            return true;
+        }
+    }
+    false
+}
+
 fn handle_client(
     mut stream: TcpStream,
     last_hb: &AtomicU64,
     connected: &AtomicBool,
     initial_uninstall_mode: bool,
     initial_dir_override: Option<&str>,
+    session_token: &str,
+    verified_install_dir: &Mutex<Option<PathBuf>>,
 ) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut buf = [0u8; 8192];
     let Ok(n) = stream.read(&mut buf) else {
         return;
@@ -1222,28 +1524,43 @@ fn handle_client(
     if n == 0 {
         return;
     }
-    last_hb.store(now_secs(), Ordering::SeqCst);
-    connected.store(true, Ordering::SeqCst);
 
     let req = String::from_utf8_lossy(&buf[..n]);
     let first_line = req.lines().next().unwrap_or("");
 
+    if !verify_setup_headers_only(&req) {
+        let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
+
+    let is_api = first_line.contains(" /api/");
+    if is_api && !verify_setup_api_request(&req, first_line, session_token) {
+        let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
+
     if first_line.starts_with("GET /favicon.ico") {
         let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             EMBEDDED_ICON_ICO.len()
         );
         let _ = stream.write_all(header.as_bytes());
         let _ = stream.write_all(EMBEDDED_ICON_ICO);
     } else if first_line.starts_with("GET /api/ping") {
+        last_hb.store(now_secs(), Ordering::SeqCst);
+        connected.store(true, Ordering::SeqCst);
         let body = r#"{"ok":true}"#;
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/install") {
+        last_hb.store(now_secs(), Ordering::SeqCst);
+        connected.store(true, Ordering::SeqCst);
         let dir = parse_query_str(first_line, "dir")
             .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
         let desktop = parse_query_str(first_line, "desktop").unwrap_or_default() == "1";
@@ -1253,7 +1570,7 @@ fn handle_client(
         let migrate = parse_query_str(first_line, "migrate").unwrap_or_default() == "1";
         let launch = parse_query_str(first_line, "launch").unwrap_or_default() == "1";
 
-        let json = perform_install(
+        let (ok, installed_path, json) = perform_install(
             &dir,
             desktop,
             startmenu,
@@ -1263,32 +1580,42 @@ fn handle_client(
             migrate,
             launch,
         );
+        if ok {
+            if let Ok(mut guard) = verified_install_dir.lock() {
+                *guard = installed_path;
+            }
+        }
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             json.len(),
             json
         );
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/uninstall") {
+        last_hb.store(now_secs(), Ordering::SeqCst);
+        connected.store(true, Ordering::SeqCst);
         let dir = parse_query_str(first_line, "dir")
             .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
         let keep_data = parse_query_str(first_line, "keep").unwrap_or_default() == "1";
-        let json = perform_uninstall(&dir, keep_data);
+        let (ok, json) = perform_uninstall(&dir, keep_data);
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             json.len(),
             json
         );
         let _ = stream.write_all(resp.as_bytes());
         let _ = stream.flush();
-        // 제거 완료 후 안내 메시지를 잠시 보여준 뒤 창과 언인스톨러 프로세스를 자동으로 종료
-        thread::spawn(|| {
-            thread::sleep(Duration::from_millis(1200));
-            close_setup_window();
-            thread::sleep(Duration::from_millis(150));
-            std::process::exit(0);
-        });
+        if ok {
+            // 제거 완료 후 안내 메시지를 잠시 보여준 뒤 창과 언인스톨러 프로세스를 자동으로 종료
+            thread::spawn(|| {
+                thread::sleep(Duration::from_millis(1200));
+                close_setup_window();
+                thread::sleep(Duration::from_millis(150));
+                std::process::exit(0);
+            });
+        }
     } else if first_line.starts_with("POST /api/browse_dir") {
+        last_hb.store(now_secs(), Ordering::SeqCst);
         let current = parse_query_str(first_line, "current")
             .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
         let body = if let Some(selected) = browse_for_install_folder(&current) {
@@ -1297,7 +1624,7 @@ fn handle_client(
             r#"{"ok":false}"#.to_string()
         };
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
@@ -1305,41 +1632,76 @@ fn handle_client(
     } else if first_line.starts_with("POST /api/open_dir") {
         let dir = parse_query_str(first_line, "dir")
             .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
-        let _ = Command::new("explorer.exe").arg(&dir).spawn();
+        if let Ok(safe_dir) = validate_safe_install_dir(&dir) {
+            if safe_dir.is_dir() {
+                let _ = Command::new("explorer.exe").arg(&safe_dir).spawn();
+            }
+        }
         let body = r#"{"ok":true}"#;
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/launch") {
-        let dir = parse_query_str(first_line, "dir")
-            .unwrap_or_else(|| default_install_dir().to_string_lossy().to_string());
-        let exe = PathBuf::from(&dir).join("CoreFlow.exe");
-        if exe.exists() {
-            let _ = Command::new(&exe)
-                .current_dir(&dir)
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn();
+        // 관리자 권한 상승 악용(임의 폴더의 가짜 CoreFlow.exe 실행) 차단:
+        // 이번 세션에서 실제 설치가 완료된 경로(또는 초기 지정된 정식 설치 폴더)의 CoreFlow.exe만 실행 허용
+        let allowed_dir = verified_install_dir
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .or_else(|| {
+                let d = initial_dir_override
+                    .map(PathBuf::from)
+                    .unwrap_or_else(default_install_dir);
+                validate_safe_install_dir(&d.to_string_lossy()).ok()
+            });
+        if let Some(dir_path) = allowed_dir {
+            let exe = dir_path.join("CoreFlow.exe");
+            if exe.is_file()
+                && !fs::symlink_metadata(&exe)
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(true)
+            {
+                let _ = Command::new(&exe)
+                    .current_dir(&dir_path)
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn();
+            }
         }
         let body = r#"{"ok":true}"#;
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
         let _ = stream.write_all(resp.as_bytes());
     } else if first_line.starts_with("POST /api/quit") {
-        let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+        let resp = "HTTP/1.1 200 OK\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
         let _ = stream.write_all(resp.as_bytes());
         let _ = stream.flush();
         close_setup_window();
         thread::sleep(Duration::from_millis(120));
         std::process::exit(0);
     } else {
+        // 초기 HTML 진입 역시 창 실행 시 전달된 일회성 auth 토큰 또는 HttpOnly 세션 쿠키와 일치해야만 노출
+        let query_auth_ok = parse_query_str(first_line, "auth")
+            .map(|t| constant_time_eq(t.trim(), session_token))
+            .unwrap_or(false);
+        let cookie_auth_ok = extract_setup_cookie(&req, "cf_setup_session")
+            .map(|t| constant_time_eq(&t, session_token))
+            .unwrap_or(false);
+        if !query_auth_ok && !cookie_auth_ok {
+            let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+        last_hb.store(now_secs(), Ordering::SeqCst);
+        connected.store(true, Ordering::SeqCst);
+
         let def_dir = initial_dir_override
-            .map(PathBuf::from)
+            .and_then(|s| validate_safe_install_dir(s).ok())
             .unwrap_or_else(default_install_dir);
         let already_installed =
             def_dir.join("CoreFlow.exe").exists() || def_dir.join("Uninstall_CoreFlow.exe").exists();
@@ -1347,8 +1709,13 @@ fn handle_client(
             "{:.2}",
             (EMBEDDED_COREFLOW_EXE.len() + EMBEDDED_ICON_ICO.len()) as f64 / (1024.0 * 1024.0)
         );
+        let safe_def_dir = escape_json(&def_dir.to_string_lossy())
+            .replace('<', "\\u003c")
+            .replace('>', "\\u003e")
+            .replace('&', "\\u0026");
         let html = SETUP_HTML
-            .replace("__DEFAULT_INSTALL_DIR__", &escape_json(&def_dir.to_string_lossy()))
+            .replace("__SETUP_SESSION_TOKEN__", session_token)
+            .replace("__DEFAULT_INSTALL_DIR__", &safe_def_dir)
             .replace("__ALREADY_INSTALLED__", if already_installed { "true" } else { "false" })
             .replace(
                 "__INITIAL_UNINSTALL_MODE__",
@@ -1357,7 +1724,7 @@ fn handle_client(
             .replace("__PACKAGE_SIZE_MB__", &pkg_mb)
             .replace("v1.0.0 Release", concat!("v", env!("CARGO_PKG_VERSION"), " Release"));
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nSet-Cookie: cf_setup_session={session_token}; HttpOnly; SameSite=Strict; Path=/\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             html.len(),
             html
         );
@@ -1425,7 +1792,9 @@ pub fn main() {
                     param_str.push_str(" --silent-update");
                 }
                 if let Some(ref d) = custom_dir_arg {
-                    param_str.push_str(&format!(" --dir \"{}\"", d));
+                    if let Ok(safe_d) = validate_safe_install_dir(d) {
+                        param_str.push_str(&format!(" --dir \"{}\"", safe_d.display()));
+                    }
                 }
                 let param_w = to_wide_null(&param_str);
                 let cur_dir = env::temp_dir();
@@ -1453,9 +1822,16 @@ pub fn main() {
             let exe_l = exe.to_string_lossy().to_ascii_lowercase();
             let tmp_l = tmp_dir.to_string_lossy().to_ascii_lowercase();
             if !exe_l.starts_with(&tmp_l) && !exe_l.contains(r"\temp\") {
-                let host_exe = tmp_dir.join("CoreFlow_Uninstaller_Host.exe");
+                let host_exe = tmp_dir.join(format!(
+                    "CoreFlow_Uninstaller_Host_{}.exe",
+                    std::process::id()
+                ));
                 let _ = fs::remove_file(&host_exe);
-                if fs::copy(exe, &host_exe).is_ok() {
+                if fs::symlink_metadata(&host_exe)
+                    .map(|m| !m.file_type().is_symlink())
+                    .unwrap_or(true)
+                    && fs::copy(exe, &host_exe).is_ok()
+                {
                     let target_dir = custom_dir_arg.clone().unwrap_or_else(|| {
                         exe.parent()
                             .map(|p| p.to_string_lossy().to_string())
@@ -1497,7 +1873,9 @@ pub fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind setup port");
     let port = listener.local_addr().unwrap().port();
-    let url = format!("http://127.0.0.1:{port}");
+    let session_token = Arc::new(generate_setup_token());
+    let url = format!("http://127.0.0.1:{port}/?auth={session_token}");
+    let verified_install_dir: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
 
     let last_hb = Arc::new(AtomicU64::new(now_secs()));
     let connected = Arc::new(AtomicBool::new(false));
@@ -1520,17 +1898,28 @@ pub fn main() {
     spawn_window_icon_applier();
 
     for stream in listener.incoming().flatten() {
+        if ACTIVE_SETUP_WORKERS.load(Ordering::Relaxed) >= MAX_SETUP_HTTP_WORKERS {
+            continue;
+        }
+        ACTIVE_SETUP_WORKERS.fetch_add(1, Ordering::Relaxed);
         let hb = Arc::clone(&last_hb);
         let conn = Arc::clone(&connected);
         let dir_ovr = custom_dir_arg.clone();
+        let tok = Arc::clone(&session_token);
+        let v_dir = Arc::clone(&verified_install_dir);
         thread::spawn(move || {
-            handle_client(
-                stream,
-                &hb,
-                &conn,
-                initial_uninstall_mode,
-                dir_ovr.as_deref(),
-            );
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                handle_client(
+                    stream,
+                    &hb,
+                    &conn,
+                    initial_uninstall_mode,
+                    dir_ovr.as_deref(),
+                    &tok,
+                    &v_dir,
+                );
+            }));
+            ACTIVE_SETUP_WORKERS.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }
@@ -1862,8 +2251,28 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   </div>
 
 <script>
+  const SETUP_TOKEN = '__SETUP_SESSION_TOKEN__';
   const alreadyInstalled = __ALREADY_INSTALLED__;
   const initialUninstallMode = __INITIAL_UNINSTALL_MODE__;
+  const initialDirValue = "__DEFAULT_INSTALL_DIR__";
+
+  document.getElementById('install-dir').value = initialDirValue;
+
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function setupFetch(url, opts = {}) {
+    const headers = Object.assign({}, opts.headers || {}, {
+      'X-CoreFlow-Setup-Token': SETUP_TOKEN
+    });
+    return fetch(url, Object.assign({}, opts, { headers }));
+  }
 
   if (alreadyInstalled || initialUninstallMode) {
     document.getElementById('installed-badge').style.display = 'inline-block';
@@ -1873,11 +2282,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   }
 
   setInterval(() => {
-    fetch('/api/ping').catch(() => {});
+    setupFetch('/api/ping').catch(() => {});
   }, 2000);
 
   window.addEventListener('beforeunload', () => {
-    navigator.sendBeacon('/api/quit');
+    navigator.sendBeacon('/api/quit?token=' + encodeURIComponent(SETUP_TOKEN));
   });
 
   async function runInstall() {
@@ -1907,11 +2316,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
 
     try {
       const qs = `dir=${encodeURIComponent(dir)}&desktop=${desktop}&startmenu=${startmenu}&uninstaller=${uninstaller}&migrate=${migrate}&startup=${startup}&launch=${launch}`;
-      const res = await fetch(`/api/install?${qs}`, { method: 'POST' });
+      const res = await setupFetch(`/api/install?${qs}`, { method: 'POST' });
       const data = await res.json();
       if (!data.ok) {
         pTitle.textContent = '❌ 설치 오류 발생';
-        logEl.innerHTML += `<div style="color:var(--red);">• 오류: ${data.error}</div>`;
+        logEl.innerHTML += `<div style="color:var(--red);">• 오류: ${escapeHtml(data.error)}</div>`;
         btn.disabled = false;
         btn.textContent = '다시 시도';
         return;
@@ -1920,7 +2329,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       pFill.style.width = '100%';
       pPct.textContent = '100%';
       pTitle.textContent = '✅ CoreFlow 설치가 완료되었습니다!';
-      logEl.innerHTML = (data.steps || []).map(s => `<div style="color:#a8f0c6;">✓ ${s}</div>`).join('');
+      logEl.innerHTML = (data.steps || []).map(s => `<div style="color:#a8f0c6;">✓ ${escapeHtml(s)}</div>`).join('');
 
       document.getElementById('installed-badge').style.display = 'inline-block';
       document.getElementById('btn-uninstall').style.display = 'inline-block';
@@ -1929,7 +2338,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       btn.textContent = '🚀 CoreFlow 실행 및 닫기';
       btn.onclick = async () => {
         if (launch !== '1') {
-          await fetch(`/api/launch?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
+          await setupFetch(`/api/launch?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
         }
         quitSetup();
       };
@@ -1958,13 +2367,18 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     pPct.textContent = '50%';
 
     const qs = `dir=${encodeURIComponent(dir)}&keep=${preserveLogs ? '1' : '0'}`;
-    const res = await fetch(`/api/uninstall?${qs}`, { method: 'POST' });
+    const res = await setupFetch(`/api/uninstall?${qs}`, { method: 'POST' });
     const data = await res.json();
+    if (!data.ok) {
+      pTitle.textContent = '❌ 제거 중단됨';
+      logEl.innerHTML = `<div style="color:var(--red);">• ${escapeHtml(data.error || '제거할 수 없는 경로입니다.')}</div>`;
+      return;
+    }
     if (data.ok) {
       pFill.style.width = '100%';
       pPct.textContent = '100%';
       pTitle.textContent = '✅ CoreFlow 제거가 완료되었습니다. (창이 자동으로 닫힙니다...)';
-      logEl.innerHTML = (data.steps || []).map(s => `<div>✓ ${s}</div>`).join('');
+      logEl.innerHTML = (data.steps || []).map(s => `<div>✓ ${escapeHtml(s)}</div>`).join('');
       document.getElementById('installed-badge').style.display = 'none';
       document.getElementById('btn-uninstall').style.display = 'none';
       document.getElementById('btn-open-dir').style.display = 'none';
@@ -1985,7 +2399,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     btn.disabled = true;
     btn.textContent = '📂 폴더 창 열림...';
     try {
-      const res = await fetch(`/api/browse_dir?current=${encodeURIComponent(current)}`, { method: 'POST' });
+      const res = await setupFetch(`/api/browse_dir?current=${encodeURIComponent(current)}`, { method: 'POST' });
       const data = await res.json();
       if (data.ok && data.path) {
         document.getElementById('install-dir').value = data.path;
@@ -1997,11 +2411,11 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
 
   function openInstallDir() {
     const dir = document.getElementById('install-dir').value.trim();
-    fetch(`/api/open_dir?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
+    setupFetch(`/api/open_dir?dir=${encodeURIComponent(dir)}`, { method: 'POST' });
   }
 
   function quitSetup() {
-    fetch('/api/quit', { method: 'POST' }).finally(() => window.close());
+    setupFetch('/api/quit', { method: 'POST' }).finally(() => window.close());
   }
 </script>
 </body>

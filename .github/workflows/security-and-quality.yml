@@ -37,6 +37,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Verify CoreFlow & Setup Compiler Checks (0 Warnings Policy)
+        env:
+          RUSTFLAGS: "-D warnings"
         run: |
-          cargo check --bin CoreFlow
+          cargo build --release --bin CoreFlow
           cargo check --bin CoreFlow_Setup

@@ -144,6 +144,17 @@ extern "system" {
     fn DeleteObject(ho: isize) -> i32;
 }
 
+#[cfg(target_os = "windows")]
+#[link(name = "Bcrypt")]
+extern "system" {
+    fn BCryptGenRandom(
+        hAlgorithm: *mut std::ffi::c_void,
+        pbBuffer: *mut u8,
+        cbBuffer: u32,
+        dwFlags: u32,
+    ) -> i32;
+}
+
 #[repr(C)]
 struct IconInfo {
     f_icon: i32,
@@ -1030,6 +1041,9 @@ fn check_github_update() -> String {
     let curl_bin = if cfg!(windows) { "curl.exe" } else { "curl" };
     let out = Command::new(curl_bin)
         .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
             "-sL",
             "--max-time",
             "8",
@@ -1113,7 +1127,6 @@ fn check_github_update() -> String {
     )
 }
 
-#[cfg(target_os = "windows")]
 fn sha256_hex(data: &[u8]) -> String {
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
@@ -1193,13 +1206,157 @@ fn sha256_hex(data: &[u8]) -> String {
     )
 }
 
+/// 공식 GitHub 저장소(`neverloselkb/coreFlow`)의 Releases 에셋 다운로드 URL인지 엄격 검증
+fn is_allowed_release_download_url(url: &str) -> bool {
+    let prefix = "https://github.com/neverloselkb/coreFlow/releases/download/";
+    if !url.starts_with(prefix) || url.len() > 512 {
+        return false;
+    }
+    if url
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | '|'))
+    {
+        return false;
+    }
+    let rest = &url[prefix.len()..];
+    let mut parts = rest.split('/');
+    let Some(tag) = parts.next() else {
+        return false;
+    };
+    let Some(asset) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_some() || tag.is_empty() || asset.is_empty() || tag.contains("..") || asset.contains("..") {
+        return false;
+    }
+    tag.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        && asset
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
+fn extract_tag_and_asset_from_release_url(url: &str) -> Option<(String, String)> {
+    let prefix = "https://github.com/neverloselkb/coreFlow/releases/download/";
+    let rest = url.strip_prefix(prefix)?;
+    let (tag, asset) = rest.split_once('/')?;
+    if tag.is_empty() || asset.is_empty() || asset.contains('/') {
+        return None;
+    }
+    Some((tag.to_string(), asset.to_string()))
+}
+
+/// GitHub Releases API의 공식 `digest` 또는 릴리스 `SHA256SUMS.txt`에서 예상 SHA-256 해시를 조회 (Fail-Closed)
+fn fetch_expected_release_sha256(download_url: &str) -> Result<String, String> {
+    let (tag, asset_name) = extract_tag_and_asset_from_release_url(download_url)
+        .ok_or_else(|| "유효하지 않은 GitHub Release 에셋 경로입니다.".to_string())?;
+    let curl_bin = if cfg!(windows) { "curl.exe" } else { "curl" };
+
+    // 1차: GitHub Releases 태그 API에서 해당 에셋의 공식 sha256 digest 조회
+    let api_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag}");
+    if let Ok(out) = Command::new(curl_bin)
+        .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "-sL",
+            "--max-time",
+            "8",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            &api_url,
+        ])
+        .no_window()
+        .output()
+    {
+        let body = String::from_utf8_lossy(&out.stdout);
+        if let Some(url_pos) = body.find(download_url) {
+            let mut window_start = url_pos.saturating_sub(600);
+            while window_start > 0 && !body.is_char_boundary(window_start) {
+                window_start -= 1;
+            }
+            let mut window_end = (url_pos + download_url.len() + 300).min(body.len());
+            while window_end < body.len() && !body.is_char_boundary(window_end) {
+                window_end += 1;
+            }
+            let slice = &body[window_start..window_end];
+            if let Some(digest_raw) = extract_json_str_field(slice, "digest") {
+                if let Some(expected_hex) = digest_raw.strip_prefix("sha256:") {
+                    let clean = expected_hex.trim().to_ascii_lowercase();
+                    if clean.len() == 64 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Ok(clean);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2차 폴백: GitHub API 호출 제한(Rate Limit) 등에 대비해 공식 배포 에셋 SHA256SUMS.txt 대조
+    let sums_url = format!("https://github.com/{GITHUB_REPO}/releases/download/{tag}/SHA256SUMS.txt");
+    if let Ok(out) = Command::new(curl_bin)
+        .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "-sL",
+            "--fail",
+            "--max-time",
+            "8",
+            "-H",
+            "User-Agent: CoreFlow-Updater",
+            &sums_url,
+        ])
+        .no_window()
+        .output()
+    {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                let mut parts = line.split_whitespace();
+                let Some(hash_part) = parts.next() else {
+                    continue;
+                };
+                let Some(file_part) = parts.next() else {
+                    continue;
+                };
+                let clean_file = file_part.trim_start_matches('*');
+                let clean_hash = hash_part.trim().to_ascii_lowercase();
+                if clean_file.eq_ignore_ascii_case(&asset_name)
+                    && clean_hash.len() == 64
+                    && clean_hash.chars().all(|c| c.is_ascii_hexdigit())
+                {
+                    return Ok(clean_hash);
+                }
+            }
+        }
+    }
+
+    Err("GitHub 공식 릴리스의 SHA-256 무결성 해시 정보를 확인할 수 없어 보안을 위해 업데이트를 중단했습니다.".to_string())
+}
+
+fn secure_update_staging_dir() -> std::path::PathBuf {
+    let dir = persistent_config_dir().join("updates");
+    if std::fs::create_dir_all(&dir).is_ok() {
+        return dir;
+    }
+    std::env::temp_dir()
+}
+
 #[cfg(target_os = "windows")]
 /// 다운로드된 업데이트 파일이 유효한 Windows 64비트 PE 실행 파일인지 검증하고,
-/// GitHub Releases API에 SHA-256 다이제스트가 제공된 경우 해시 일치 여부를 대조합니다.
+/// GitHub 공식 SHA-256 해시와 일치하는지 엄격 대조합니다 (Fail-Closed).
 fn verify_downloaded_installer(
     path: &std::path::Path,
     download_url: &str,
 ) -> Result<String, String> {
+    if std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(true)
+    {
+        return Err("보안상 심볼릭 링크된 업데이트 파일은 허용되지 않습니다.".to_string());
+    }
     let bytes = std::fs::read(path).map_err(|_| "다운로드된 설치 파일을 읽을 수 없습니다.".to_string())?;
     if bytes.len() < 500_000 {
         return Err("다운로드된 파일 크기가 비정상적으로 작습니다.".to_string());
@@ -1217,46 +1374,14 @@ fn verify_downloaded_installer(
         return Err("64비트(AMD64) Windows 실행 파일이 아닙니다.".to_string());
     }
 
-    // 2. SHA-256 해시 계산 및 GitHub API 공식 digest 대조
+    // 2. SHA-256 해시 계산 및 공식 배포 해시 필수 검증 (불일치 또는 조회 불가 시 차단)
     let actual_sha256 = sha256_hex(&bytes);
-    let api_url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    if let Ok(out) = Command::new("curl.exe")
-        .args([
-            "-sL",
-            "--max-time",
-            "6",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "User-Agent: CoreFlow-Updater",
-            &api_url,
-        ])
-        .no_window()
-        .output()
-    {
-        let body = String::from_utf8_lossy(&out.stdout);
-        // 해당 다운로드 URL이 포함된 에셋 블록에서 "digest": "sha256:..." 추출 (UTF-8 문자 경계 안전 슬라이싱)
-        if let Some(url_pos) = body.find(download_url) {
-            let mut window_start = url_pos.saturating_sub(600);
-            while window_start > 0 && !body.is_char_boundary(window_start) {
-                window_start -= 1;
-            }
-            let mut window_end = (url_pos + download_url.len() + 300).min(body.len());
-            while window_end < body.len() && !body.is_char_boundary(window_end) {
-                window_end += 1;
-            }
-            let slice = &body[window_start..window_end];
-            if let Some(digest_raw) = extract_json_str_field(slice, "digest") {
-                if let Some(expected_hex) = digest_raw.strip_prefix("sha256:") {
-                    if !expected_hex.eq_ignore_ascii_case(&actual_sha256) {
-                        return Err(format!(
-                            "다운로드 파일의 SHA-256 해시가 일치하지 않습니다 (예상: {}, 실제: {}).",
-                            expected_hex, actual_sha256
-                        ));
-                    }
-                }
-            }
-        }
+    let expected_sha256 = fetch_expected_release_sha256(download_url)?;
+    if !constant_time_eq(&expected_sha256, &actual_sha256) {
+        return Err(format!(
+            "다운로드 파일의 SHA-256 해시가 일치하지 않습니다 (예상: {}, 실제: {}).",
+            expected_sha256, actual_sha256
+        ));
     }
 
     Ok(actual_sha256)
@@ -1265,17 +1390,23 @@ fn verify_downloaded_installer(
 #[cfg(target_os = "windows")]
 /// GitHub Release에서 최신 `CoreFlow_Setup.exe`를 다운로드하여 무인 업데이트(`--silent-update`) 실행
 fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>) -> String {
-    if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
-        && !download_url.starts_with("https://objects.githubusercontent.com/")
+    if !is_allowed_release_download_url(download_url)
+        || !download_url.to_ascii_lowercase().ends_with("/coreflow_setup.exe")
     {
         return r#"{"ok":false,"error":"허용되지 않은 업데이트 다운로드 경로입니다."}"#.to_string();
     }
 
-    let tmp_installer = std::env::temp_dir().join("CoreFlow_Setup_Update.exe");
+    let tmp_installer = secure_update_staging_dir().join(format!(
+        "CoreFlow_Setup_Update_{}.exe",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&tmp_installer);
 
     let status = Command::new("curl.exe")
         .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
             "-sL",
             "--fail",
             "--max-time",
@@ -1290,6 +1421,7 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>
         .status();
 
     if !status.map(|s| s.success()).unwrap_or(false) {
+        let _ = std::fs::remove_file(&tmp_installer);
         return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow_Setup.exe 설치 파일을 다운로드하지 못했습니다."}"#.to_string();
     }
 
@@ -1340,22 +1472,29 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>
 }
 
 #[cfg(target_os = "macos")]
-/// GitHub Release에서 최신 `CoreFlow-macOS-universal.zip`을 다운로드하여 앱 번들 교체 및 자동 재시작
+/// GitHub Release에서 최신 `CoreFlow-macOS-universal.zip`을 다운로드하여 SHA-256 검증 후 앱 번들 교체 및 재시작
 fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>) -> String {
-    if !download_url.starts_with("https://github.com/neverloselkb/coreFlow/")
-        && !download_url.starts_with("https://objects.githubusercontent.com/")
+    if !is_allowed_release_download_url(download_url)
+        || !download_url.to_ascii_lowercase().ends_with(".zip")
     {
         return r#"{"ok":false,"error":"허용되지 않은 업데이트 다운로드 경로입니다."}"#.to_string();
     }
 
-    let tmp_zip = std::env::temp_dir().join("CoreFlow_Update.zip");
+    let stage_dir = secure_update_staging_dir();
+    let pid = std::process::id();
+    let tmp_zip = stage_dir.join(format!("CoreFlow_Update_{pid}.zip"));
     let _ = std::fs::remove_file(&tmp_zip);
-    let tmp_extract_dir = std::env::temp_dir().join("CoreFlow_Update_Extracted");
+    let tmp_extract_dir = stage_dir.join(format!("CoreFlow_Update_Extracted_{pid}"));
     let _ = std::fs::remove_dir_all(&tmp_extract_dir);
-    let _ = std::fs::create_dir_all(&tmp_extract_dir);
+    if std::fs::create_dir_all(&tmp_extract_dir).is_err() {
+        return r#"{"ok":false,"error":"업데이트 임시 스테이징 폴더를 생성하지 못했습니다."}"#.to_string();
+    }
 
     let status = Command::new("curl")
         .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
             "-sL",
             "--fail",
             "--max-time",
@@ -1368,13 +1507,43 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>
         .arg(download_url)
         .status();
 
-    let downloaded_ok = status.map(|s| s.success()).unwrap_or(false)
-        && std::fs::metadata(&tmp_zip)
-            .map(|m| m.len() > 100_000)
-            .unwrap_or(false);
-
-    if !downloaded_ok {
+    let Ok(zip_bytes) = std::fs::read(&tmp_zip) else {
+        let _ = std::fs::remove_file(&tmp_zip);
         return r#"{"ok":false,"error":"GitHub Releases에서 CoreFlow 업데이트 패키지를 다운로드하지 못했습니다."}"#.to_string();
+    };
+    if !status.map(|s| s.success()).unwrap_or(false) || zip_bytes.len() < 100_000 {
+        let _ = std::fs::remove_file(&tmp_zip);
+        return r#"{"ok":false,"error":"다운로드된 업데이트 패키지가 유효하지 않습니다."}"#.to_string();
+    }
+
+    // SHA-256 무결성 해시 필수 검증 (Fail-Closed)
+    let actual_sha256 = sha256_hex(&zip_bytes);
+    match fetch_expected_release_sha256(download_url) {
+        Ok(expected_sha256) if constant_time_eq(&expected_sha256, &actual_sha256) => {}
+        Ok(expected_sha256) => {
+            let _ = std::fs::remove_file(&tmp_zip);
+            return format!(
+                r#"{{"ok":false,"error":"업데이트 파일 SHA-256 해시 불일치 (예상: {}, 실제: {})"}}"#,
+                json_escape(&expected_sha256),
+                json_escape(&actual_sha256)
+            );
+        }
+        Err(reason) => {
+            let _ = std::fs::remove_file(&tmp_zip);
+            return format!(
+                r#"{{"ok":false,"error":"업데이트 무결성 검증 실패: {}"}}"#,
+                json_escape(&reason)
+            );
+        }
+    }
+
+    // 압축 해제 전 Zip-Slip(`..` 또는 절대 경로) 엔트리 검사
+    if let Ok(list_out) = Command::new("unzip").arg("-Z1").arg(&tmp_zip).output() {
+        let listing = String::from_utf8_lossy(&list_out.stdout);
+        if listing.lines().any(|entry| entry.starts_with('/') || entry.contains("..")) {
+            let _ = std::fs::remove_file(&tmp_zip);
+            return r#"{"ok":false,"error":"압축 파일 내 안전하지 않은 경로가 감지되어 중단했습니다."}"#.to_string();
+        }
     }
 
     let unzip_status = Command::new("unzip")
@@ -1384,12 +1553,16 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>
         .arg(&tmp_extract_dir)
         .status();
 
+    let _ = std::fs::remove_file(&tmp_zip);
+
     if !unzip_status.map(|s| s.success()).unwrap_or(false) {
+        let _ = std::fs::remove_dir_all(&tmp_extract_dir);
         return r#"{"ok":false,"error":"업데이트 압축 파일(ZIP)의 압축 해제에 실패했습니다."}"#.to_string();
     }
 
     let extracted_app = tmp_extract_dir.join("CoreFlow.app");
     if !extracted_app.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_extract_dir);
         return r#"{"ok":false,"error":"압축 파일 내에서 CoreFlow.app 번들을 찾을 수 없습니다."}"#.to_string();
     }
 
@@ -1411,14 +1584,15 @@ fn perform_github_self_update(download_url: &str, state: &Arc<Mutex<SharedMeta>>
         save_game_sessions(&sessions);
     }
 
-    // 백그라운드 쉘 스크립트 실행: 0.5초 대기 -> 기존 .app 삭제 -> 새 .app 복사 -> 격리 속성 해제 -> 앱 재실행
-    let update_script = format!(
-        r#"sleep 0.5; rm -rf "{}" && cp -R "{}" "{}" && xattr -dr com.apple.quarantine "{}" 2>/dev/null; open "{}""#,
-        target_app_str, extracted_app_str, target_app_str, target_app_str, target_app_str
-    );
-
+    // 쉘 문자열 치환 없이 위치 인자($1, $2)로 전달하여 경로 내 특수문자로 인한 OS Command Injection 원천 차단
     let spawn_res = Command::new("sh")
-        .args(["-c", &update_script])
+        .args([
+            "-c",
+            r#"sleep 0.5; rm -rf -- "$1" && cp -R -- "$2" "$1" && xattr -dr com.apple.quarantine -- "$1" 2>/dev/null; open -- "$1""#,
+            "coreflow-updater",
+            &target_app_str,
+            &extracted_app_str,
+        ])
         .spawn();
 
     if spawn_res.is_err() {
@@ -1667,7 +1841,42 @@ fn reg_find_subkey_string(_root: isize, _parent_key: &str, _value_name: &str) ->
     None
 }
 
+/// OS 커널 암호학적 난수 생성기(Windows BCryptGenRandom / Unix /dev/urandom) 기반 256비트 세션 토큰 생성
 fn generate_session_token() -> String {
+    let mut bytes = [0u8; 32];
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = unsafe {
+            BCryptGenRandom(
+                std::ptr::null_mut(),
+                bytes.as_mut_ptr(),
+                bytes.len() as u32,
+                0x0000_0002, // BCRYPT_USE_SYSTEM_PREFERRED_RNG
+            )
+        };
+        if status == 0 {
+            let mut out = String::with_capacity(64);
+            for b in bytes {
+                out.push_str(&format!("{b:02x}"));
+            }
+            return out;
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            if f.read_exact(&mut bytes).is_ok() {
+                let mut out = String::with_capacity(64);
+                for b in bytes {
+                    out.push_str(&format!("{b:02x}"));
+                }
+                return out;
+            }
+        }
+    }
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1675,8 +1884,37 @@ fn generate_session_token() -> String {
     let pid = std::process::id() as u128;
     let stack_addr = (&nanos as *const u128 as usize) as u128;
     let mixed1 = nanos ^ (pid.rotate_left(32)) ^ (stack_addr.rotate_left(17));
-    let mixed2 = nanos.wrapping_mul(0x9E3779B97F4A7C15u128) ^ stack_addr;
-    format!("{mixed1:032x}{mixed2:016x}")
+    let mixed2 = nanos.wrapping_mul(0x9E37_79B9_7F4A_7C15_u128) ^ stack_addr.rotate_left(49);
+    format!("{mixed1:032x}{mixed2:032x}")
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let ab = a.as_bytes();
+    let bb = b.as_bytes();
+    if ab.len() != bb.len() || ab.is_empty() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in ab.iter().zip(bb.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// HTML `<script>` 블록 내 JSON 인라인 삽입 시 `</script>` 및 `<!--` 탈출(Stored XSS)을 원천 차단
+fn safe_json_for_inline_script(raw_json: &str) -> String {
+    let mut out = String::with_capacity(raw_json.len() + 16);
+    for c in raw_json.chars() {
+        match c {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn now_secs() -> u64 {
@@ -4159,6 +4397,13 @@ fn set_startup_enabled(enable: bool) -> bool {
         .join("Library/LaunchAgents/com.coreflow.app.plist");
     if enable {
         let Ok(exe) = std::env::current_exe() else { return false; };
+        let xml_escaped_exe = exe
+            .to_string_lossy()
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;");
         let plist_content = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -4174,7 +4419,7 @@ fn set_startup_enabled(enable: bool) -> bool {
     <true/>
 </dict>
 </plist>"#,
-            exe.to_string_lossy()
+            xml_escaped_exe
         );
         if let Some(parent) = plist_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -4535,7 +4780,11 @@ fn launch_desktop_window(url: &str) {
     }
 
     let launch_url = if mini_state.is_mini {
-        format!("{url}?mini=1")
+        if url.contains('?') {
+            format!("{url}&mini=1")
+        } else {
+            format!("{url}?mini=1")
+        }
     } else {
         url.to_string()
     };
@@ -4913,9 +5162,9 @@ fn get_logs_dir() -> std::path::PathBuf {
     logs
 }
 
-/// 로컬 HTTP API 요청의 세션 토큰 및 Origin/Host 검증 (CSRF 및 외부 웹페이지 공격 차단)
-fn verify_api_request(req_headers: &str, first_line: &str, expected_token: &str) -> bool {
-    let mut header_token_ok = false;
+/// 로컬 HTTP 요청의 Host / Origin / Sec-Fetch-Site 헤더 검증 (DNS Rebinding 및 외부 웹페이지 교차 출처 요청 차단)
+fn verify_local_headers_only(req_headers: &str) -> bool {
+    let mut saw_host = false;
     for line in req_headers.lines().skip(1) {
         if line.trim().is_empty() {
             break;
@@ -4926,8 +5175,8 @@ fn verify_api_request(req_headers: &str, first_line: &str, expected_token: &str)
             if !h.starts_with("127.0.0.1:") && h != "127.0.0.1" && !h.starts_with("localhost:") {
                 return false;
             }
-        }
-        if let Some(origin) = lower.strip_prefix("origin:") {
+            saw_host = true;
+        } else if let Some(origin) = lower.strip_prefix("origin:") {
             let o = origin.trim();
             if o != "null"
                 && !o.starts_with("http://127.0.0.1:")
@@ -4935,18 +5184,58 @@ fn verify_api_request(req_headers: &str, first_line: &str, expected_token: &str)
             {
                 return false;
             }
-        }
-        if let Some(tok) = lower.strip_prefix("x-coreflow-token:") {
-            if tok.trim() == expected_token {
-                header_token_ok = true;
+        } else if let Some(sfs) = lower.strip_prefix("sec-fetch-site:") {
+            if sfs.trim() == "cross-site" {
+                return false;
             }
         }
     }
-    if header_token_ok {
-        return true;
+    saw_host
+}
+
+fn extract_cookie_value(req_headers: &str, cookie_name: &str) -> Option<String> {
+    let prefix = format!("{cookie_name}=");
+    for line in req_headers.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        if line.len() >= 7 && line[..7].eq_ignore_ascii_case("cookie:") {
+            let raw_cookies = &line[7..];
+            for part in raw_cookies.split(';') {
+                let trimmed = part.trim();
+                if let Some(val) = trimmed.strip_prefix(&prefix) {
+                    return Some(val.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 로컬 HTTP API 요청의 세션 토큰(상수 시간 비교) 및 Origin/Host 검증
+fn verify_api_request(req_headers: &str, first_line: &str, expected_token: &str) -> bool {
+    if !verify_local_headers_only(req_headers) {
+        return false;
+    }
+    for line in req_headers.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        if line.len() >= 17 && line[..17].eq_ignore_ascii_case("x-coreflow-token:") {
+            let tok = line[17..].trim();
+            if constant_time_eq(tok, expected_token) {
+                return true;
+            }
+        }
     }
     if let Some(q_tok) = parse_query_str(first_line, "token") {
-        if q_tok == expected_token {
+        let decoded = url_decode(&q_tok);
+        if constant_time_eq(decoded.trim(), expected_token) {
+            return true;
+        }
+    }
+    if let Some(c_tok) = extract_cookie_value(req_headers, "cf_session") {
+        if constant_time_eq(&c_tok, expected_token) {
             return true;
         }
     }
@@ -4971,19 +5260,25 @@ fn handle_client(
     let req = String::from_utf8_lossy(&buf[..n]);
     let first_line = req.lines().next().unwrap_or("").to_string();
 
-    // API 엔드포인트(/api/*)는(단순 이미지 조회 GET /api/avatar, GET /api/proc_icon 제외) 세션 토큰 검증 필수
-    let is_api_call = first_line.contains(" /api/")
-        && !first_line.starts_with("GET /api/avatar")
-        && !first_line.starts_with("GET /api/proc_icon");
-    if is_api_call && !verify_api_request(&req, &first_line, session_token) {
+    if !verify_local_headers_only(&req) {
         let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
         let _ = stream.write_all(resp.as_bytes());
         return;
     }
 
-    last_heartbeat.store(now_secs(), Ordering::SeqCst);
-    client_connected.store(true, Ordering::SeqCst);
-    if first_line.starts_with("GET /api/stats") || first_line.starts_with("POST /api/quit") || first_line.starts_with("GET /api/quit") {
+    // 모든 /api/* 엔드포인트(/api/avatar, /api/proc_icon 포함)에 대해 세션 토큰 및 출처 검증 강제
+    let is_api_call = first_line.contains(" /api/") && !first_line.starts_with("GET /api/icon.ico");
+    if is_api_call && !verify_api_request(&req, &first_line, session_token) {
+        let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+        let _ = stream.write_all(resp.as_bytes());
+        return;
+    }
+
+    if is_api_call {
+        last_heartbeat.store(now_secs(), Ordering::SeqCst);
+        client_connected.store(true, Ordering::SeqCst);
+    }
+    if first_line.starts_with("GET /api/stats") || first_line.starts_with("POST /api/quit") {
         parse_query_bounds(&first_line);
     }
 
@@ -5102,7 +5397,7 @@ fn handle_client(
         || first_line.starts_with("GET /api/icon.ico")
     {
         let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nX-Content-Type-Options: nosniff\r\nCache-Control: public, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: private, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             APP_ICON_ICO.len()
         );
         let _ = stream.write_all(header.as_bytes());
@@ -5113,7 +5408,7 @@ fn handle_client(
             .unwrap_or_default();
         if let Some(ico_bytes) = resolve_and_get_proc_icon(&exe_name) {
             let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nX-Content-Type-Options: nosniff\r\nCache-Control: public, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Type: image/x-icon\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: private, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 ico_bytes.len()
             );
             let _ = stream.write_all(header.as_bytes());
@@ -5121,7 +5416,7 @@ fn handle_client(
         } else {
             let svg = DEFAULT_PROC_ICON_SVG.as_bytes();
             let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCache-Control: public, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: private, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 svg.len()
             );
             let _ = stream.write_all(header.as_bytes());
@@ -5130,7 +5425,7 @@ fn handle_client(
     } else if first_line.starts_with("GET /api/avatar") {
         let (img_bytes, mime) = load_windows_avatar_bytes();
         let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nX-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             mime,
             img_bytes.len()
         );
@@ -5486,7 +5781,13 @@ fn handle_client(
         let ext_url = parse_query_str(&first_line, "url")
             .map(|v| url_decode(&v))
             .unwrap_or_default();
-        if ext_url.starts_with("https://github.com/neverloselkb/coreFlow") {
+        let allowed_ext = (ext_url == "https://github.com/neverloselkb/coreFlow"
+            || ext_url.starts_with("https://github.com/neverloselkb/coreFlow/"))
+            && ext_url.len() <= 512
+            && !ext_url
+                .chars()
+                .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>'));
+        if allowed_ext {
             #[cfg(target_os = "windows")]
             unsafe {
                 let op_w = to_wide("open");
@@ -5547,10 +5848,10 @@ fn handle_client(
             }
         });
         return;
-    } else if first_line.starts_with("POST /api/quit") || first_line.starts_with("GET /api/quit") {
+    } else if first_line.starts_with("POST /api/quit") {
         if now_secs() < SUPPRESS_QUIT_UNTIL.load(Ordering::SeqCst) {
             // 자동 복구로 닫히는 이전 창의 종료 요청은 무시
-            let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+            let resp = "HTTP/1.1 200 OK\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
             let _ = stream.write_all(resp.as_bytes());
             return;
         }
@@ -5559,16 +5860,32 @@ fn handle_client(
             save_game_sessions(&sessions);
         }
         stop_fps_etw_session();
-        let resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+        let resp = "HTTP/1.1 200 OK\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
         let _ = stream.write_all(resp.as_bytes());
         let _ = stream.flush();
         thread::sleep(Duration::from_millis(100));
         std::process::exit(0);
     } else {
+        // 초기 HTML 진입도 창 실행 시 부여된 auth 쿼리 또는 HttpOnly SameSite=Strict 세션 쿠키로 보호
+        let query_auth_ok = parse_query_str(&first_line, "auth")
+            .map(|v| url_decode(&v))
+            .map(|t| constant_time_eq(t.trim(), session_token))
+            .unwrap_or(false);
+        let cookie_auth_ok = extract_cookie_value(&req, "cf_session")
+            .map(|t| constant_time_eq(&t, session_token))
+            .unwrap_or(false);
+        if !query_auth_ok && !cookie_auth_ok {
+            let resp = "HTTP/1.1 403 Forbidden\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 9\r\nConnection: close\r\n\r\nForbidden";
+            let _ = stream.write_all(resp.as_bytes());
+            return;
+        }
+        last_heartbeat.store(now_secs(), Ordering::SeqCst);
+        client_connected.store(true, Ordering::SeqCst);
+
         let saved_mode = load_theme_pref();
-        let saved_todos = load_todos_json();
-        let saved_alerts = load_alerts_json();
-        let saved_ui_prefs = load_ui_prefs_json();
+        let saved_todos = safe_json_for_inline_script(&load_todos_json());
+        let saved_alerts = safe_json_for_inline_script(&load_alerts_json());
+        let saved_ui_prefs = safe_json_for_inline_script(&load_ui_prefs_json());
         let ms = load_minihud_state();
         let saved_minihud = format!(
             "{{\"is_mini\":{},\"wide\":{},\"topmost\":{},\"opacity\":{},\"mini_x\":{},\"mini_y\":{},\"mini_w\":{},\"mini_h\":{},\"normal_x\":{},\"normal_y\":{},\"normal_w\":{},\"normal_h\":{}}}",
@@ -5580,14 +5897,14 @@ fn handle_client(
                 "let themeOverride = 'auto';",
                 &format!("let themeOverride = '{saved_mode}';"),
             )
-            .replace("__COREFLOW_SESSION_TOKEN__", session_token)
             .replace("__COREFLOW_APP_VERSION__", APP_VERSION)
             .replace("/*__COREFLOW_INITIAL_TODOS__*/[]", &saved_todos)
             .replace("/*__COREFLOW_INITIAL_ALERTS__*/null", &saved_alerts)
             .replace("/*__COREFLOW_INITIAL_UI_PREFS__*/null", &saved_ui_prefs)
-            .replace("/*__COREFLOW_INITIAL_MINIHUD__*/null", &saved_minihud);
+            .replace("/*__COREFLOW_INITIAL_MINIHUD__*/null", &saved_minihud)
+            .replace("__COREFLOW_SESSION_TOKEN__", session_token);
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nSet-Cookie: cf_session={session_token}; HttpOnly; SameSite=Strict; Path=/\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'self'\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
@@ -6005,11 +6322,17 @@ fn refresh_uninstaller_binary_if_outdated(install_dir: &std::path::Path) -> bool
     let setup_url = format!(
         "https://github.com/{GITHUB_REPO}/releases/download/v{APP_VERSION}/CoreFlow_Setup.exe"
     );
-    let tmp_setup = std::env::temp_dir().join("CoreFlow_Uninstaller_Sync.exe");
+    let tmp_setup = secure_update_staging_dir().join(format!(
+        "CoreFlow_Uninstaller_Sync_{}.exe",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&tmp_setup);
 
     let ok = Command::new("curl.exe")
         .args([
+            "--proto",
+            "=https",
+            "--tlsv1.2",
             "-sL",
             "--fail",
             "--max-time",
@@ -6122,8 +6445,8 @@ fn run_worker(restarted: bool) {
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind local port");
     let port = listener.local_addr().unwrap().port();
-    let url = format!("http://127.0.0.1:{port}");
     let session_token = Arc::new(generate_session_token());
+    let url = format!("http://127.0.0.1:{port}/?auth={session_token}");
 
     let gpu_state = Arc::new(Mutex::new(GpuMetrics::default()));
     spawn_gpu_monitor(Arc::clone(&gpu_state));
@@ -8796,7 +9119,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     <div class="user-panel">
       <div class="user-info" style="min-width: 0; flex: 1;">
         <div class="avatar" onclick="document.getElementById('avatar-file-input').click()" oncontextmenu="resetCustomAvatar(event)" title="좌클릭: 프로필 사진 선택 / 우클릭: 기본 계정 사진으로 초기화">
-          <img id="user-avatar-img" src="/api/avatar" class="avatar-img" alt="Profile">
+          <img id="user-avatar-img" src="/api/avatar?token=__COREFLOW_SESSION_TOKEN__" class="avatar-img" alt="Profile">
           <div class="avatar-status"></div>
         </div>
         <input type="file" id="avatar-file-input" accept="image/*" style="display:none" onchange="onUploadCustomAvatar(event)">
@@ -10553,7 +10876,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
   function procIconHtml(name, size = 16) {
     if (!name) return '';
-    return `<img class="proc-icon" style="width:${size}px;height:${size}px;" src="/api/proc_icon?name=${encodeURIComponent(name)}" alt="" draggable="false">`;
+    return `<img class="proc-icon" style="width:${size}px;height:${size}px;" src="/api/proc_icon?name=${encodeURIComponent(name)}&token=${encodeURIComponent(SESSION_TOKEN)}" alt="" draggable="false">`;
   }
 
   function showProcContextMenu(e, pid, name) {
@@ -10970,7 +11293,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   function onChangeThemeOverride() {
     themeOverride = document.getElementById('theme-mode-select').value;
     applyWindowsTheme(lastWinTheme);
-    fetch('/api/stats?' + getWindowBoundsQuery()).catch(() => {});
+    apiFetch('/api/stats?' + getWindowBoundsQuery()).catch(() => {});
   }
 
   // 뽀모도로 상태
@@ -12317,7 +12640,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
       });
       const data = await res.json();
       if (data.ok) {
-        document.getElementById('user-avatar-img').src = '/api/avatar?t=' + Date.now();
+        document.getElementById('user-avatar-img').src = '/api/avatar?token=' + encodeURIComponent(SESSION_TOKEN) + '&t=' + Date.now();
         showToast('📷 프로필 사진이 변경되었습니다.');
       } else {
         showToast('⚠️ 프로필 사진 저장에 실패했습니다.');
@@ -12333,7 +12656,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
     event.stopPropagation();
     try {
       await apiFetch('/api/avatar?reset=1', { method: 'POST' });
-      document.getElementById('user-avatar-img').src = '/api/avatar?t=' + Date.now();
+      document.getElementById('user-avatar-img').src = '/api/avatar?token=' + encodeURIComponent(SESSION_TOKEN) + '&t=' + Date.now();
       showToast('🔄 Windows 기본 계정 프로필 사진으로 복원했습니다.');
     } catch (e) {
       console.error(e);
@@ -13304,8 +13627,12 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
   }
 
   function csvSafe(val) {
-    const s = String(val ?? '');
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    let s = String(val ?? '');
+    const trimmed = s.trimStart();
+    if (trimmed.length > 0 && /^[=+\-@\t\r]/.test(trimmed) && !/^-[0-9]+(\.[0-9]+)?$/.test(trimmed)) {
+      s = "'" + s;
+    }
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
       return '"' + s.replace(/"/g, '""') + '"';
     }
     return s;
