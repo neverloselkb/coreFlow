@@ -6,7 +6,7 @@
 
 [![Language](https://img.shields.io/badge/Language-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20(Universal)-0078D6?logo=apple)](https://github.com/neverloselkb/coreFlow/releases)
-[![Version](https://img.shields.io/badge/Release-v1.0.14-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
+[![Version](https://img.shields.io/badge/Release-v1.0.15-blue?logo=github)](https://github.com/neverloselkb/coreFlow/releases)
 [![License](https://img.shields.io/badge/License-MIT-green)](#)
 
 </div>
@@ -83,6 +83,7 @@
 
 ## 📋 최근 주요 업데이트 내역 (Changelog)
 
+- **`v1.0.15`**: `NVIDIA GeForce Overlay DT`(`NVIDIA Overlay.exe`) 및 그래픽 드라이버·투명 오버레이 창(`WS_EX_TRANSPARENT` / `WS_EX_NOACTIVATE` / `WS_EX_TOOLWINDOW`) 게임 오탐 4중 차단 및 기존 오탐 플레이 기록 자동 정리
 - **`v1.0.14`**: 보안 전면 강화 — 설치/제거 관리자(`CoreFlow_Setup`) 로컬 서버 256비트 CSPRNG 토큰·`HttpOnly` 세션 쿠키·경로 안전 검증 적용, 메인 앱 256비트 CSPRNG 토큰·상수 시간 검증·Stored XSS(`</script>` 탈출) 차단·CSP 및 `/api/avatar`·`/api/proc_icon` 교차 출처 보호, Windows·macOS 공통 Fail-Closed SHA-256 자가 업데이트 검증 및 macOS 쉘 인젝션/Zip-Slip 차단
 - **`v1.0.13`**: 무광 흑연(Graphite) 정밀 계측기 UI 전면 리디자인, 미니 HUD `NET/PING` 칸 확장, 드라이브 점유율 색상 칩 구분, 동영상 플레이어(PotPlayer·VLC·MPC 등) 게임 오탐 차단
 - **`v1.0.12`**: 장기 실행 멈춤 방지 아키텍처 개선 — 전용 백그라운드 수집 스레드 분리(`SharedMeta` + `StatsCollector`), 초경량 프로세스 스캔 전환 및 `rayon` 스레드 풀 제거, CPU WMI 온도 백오프 적용

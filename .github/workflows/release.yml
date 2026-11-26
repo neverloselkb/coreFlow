@@ -147,15 +147,22 @@ jobs:
             release-assets/CoreFlow-macOS-universal.zip
             release-assets/SHA256SUMS.txt
           tag_name: ${{ github.ref_name }}
-          name: CoreFlow ${{ github.ref_name }} — 로컬 서버·설치기 보안 전면 강화(CSPRNG·CSRF/XSS 방어·Fail-Closed 무결성 검증)
+          name: CoreFlow ${{ github.ref_name }} — NVIDIA GeForce Overlay DT 및 투명 오버레이 게임 오탐 원천 차단
           body: |
             ## 🚀 CoreFlow ${{ github.ref_name }} 릴리스 노트
 
-            CoreFlow ${{ github.ref_name }}는 **설치 관리자 및 메인 애플리케이션 로컬 서버 인증 강화**, **256비트 CSPRNG 세션 토큰 도입**, **Stored/DOM XSS 및 교차 출처 정보 유출 원천 차단**, 그리고 **Windows·macOS 공통 Fail-Closed SHA-256 자가 업데이트 무결성 검증**을 적용한 보안 강화 업데이트입니다.
+            CoreFlow ${{ github.ref_name }}는 **NVIDIA App(`NVIDIA GeForce Overlay DT`) 및 그래픽 드라이버·서드파티 투명 오버레이가 게임 실행 중으로 오판되던 문제를 4중으로 원천 차단**하고 기존 오탐 플레이 기록을 자동 정리하는 업데이트입니다.
 
             ---
 
-            ### 🛡️ v1.0.14 보안 전면 강화 (Security Hardening)
+            ### 🎯 v1.0.15 게임 감지 정확도 개선 (오버레이 오탐 원천 차단)
+            - **Win32 투명·오버레이 창 속성 구조적 필터링**: 포그라운드 창 조회 시 클릭 투과(`WS_EX_TRANSPARENT`), 비활성 HUD(`WS_EX_NOACTIVATE`), 보조 툴 창(`WS_EX_TOOLWINDOW`) 확장 스타일을 가진 창은 3D 렌더링 프레임이 감지되더라도 게임 후보에서 즉시 제외합니다.
+            - **그래픽 드라이버 & 서드파티 오버레이 블랙리스트 확장**: 최신 NVIDIA App(`NVIDIA Overlay.exe`, `NVIDIA App.exe`, `"NVIDIA GeForce Overlay DT"`), AMD Adrenalin 오버레이, Intel Arc Control, Overwolf, RTSS, Wallpaper Engine 등 하드웨어 가속 비게임 프로세스·창 제목·설치 경로(`\NVIDIA Corporation\` 등)를 전면 차단했습니다.
+            - **기존 오탐 플레이 로그 자동 정리**: 앱 시작 시 `game_play_log.tsv`에 이미 기록되어 있던 오버레이 오탐 내역을 자동으로 필터링하고 파일에서도 깨끗하게 정리합니다.
+
+            ---
+
+            ### 🛡️ v1.0.14 보안 전면 강화 (이전 버전 포함 내용)
             - **설치/제거 관리자(`CoreFlow_Setup`) 권한 경계 및 인증 보호**: UAC 관리자 권한으로 실행되는 설치/제거 로컬 서버의 초기 진입 및 모든 `/api/*` 엔드포인트에 256비트 CSPRNG 세션 토큰(`BCryptGenRandom`), `HttpOnly; SameSite=Strict` 세션 쿠키, `Host`/`Origin`/`Sec-Fetch-Site` 검증, 소켓 타임아웃 및 워커 스레드 상한을 적용해 외부 웹페이지 CSRF 및 비권한 프로세스 권한 상승을 차단했습니다.
             - **설치·제거 대상 경로 안전 검증**: 상대경로, 상위 경로 이동(`..`), UNC 네트워크 공유(`\\...`), 심볼릭 링크/정션, 드라이브 루트(`C:\`), 시스템·사용자 루트 폴더 지정을 원천 차단하고, 공용 폴더에 설치된 경우 타 파일 손실 없이 CoreFlow 전용 파일만 안전하게 제거하도록 강화했습니다.
             - **Windows·macOS 공통 Fail-Closed SHA-256 업데이트 검증**: 업데이트 에셋 URL을 공식 `neverloselkb/coreFlow/releases/download/` 경로로 엄격 제한(`--proto =https --tlsv1.2`)하고, GitHub Releases API 공식 `digest` 또는 배포본 `SHA256SUMS.txt` 해시 대조가 통과한 경우에만 설치를 허용합니다.
